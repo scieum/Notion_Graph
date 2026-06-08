@@ -209,6 +209,7 @@ export function ChartView({
             dataKey="x"
             type={isScatter ? "number" : "category"}
             name={config.xAxis?.title}
+            padding={{ left: 24, right: 24 }}
             tick={axisTickStyle(config.xAxis)}
             tickLine={false}
             axisLine={{ stroke: config.xAxis?.color ?? "rgba(0,0,0,0.15)" }}
