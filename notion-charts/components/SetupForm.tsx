@@ -573,7 +573,7 @@ export function SetupForm() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,540px)] xl:grid-cols-[minmax(0,1fr)_minmax(0,660px)] lg:items-start">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[420px_minmax(0,1fr)] lg:items-start">
           <div className="space-y-6 min-w-0">
             <Card>
               <CardTitle>
