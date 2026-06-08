@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import {
   Area,
   Bar,
@@ -104,6 +105,7 @@ export function ChartView({
   const legendPos = style.legend ?? "bottom";
   const series = resolveSeries(config);
   const fillOpacity = style.fillOpacity ?? 0.25;
+  const uid = useId().replace(/:/g, "");
 
   const axisTickStyle = (axis?: AxisConfig) => ({
     fontSize: 12,
@@ -202,8 +204,19 @@ export function ChartView({
     <Wrapper background={background}>
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 16, right: hasRight ? 16 : 20, bottom: 8, left: 4 }}>
+          <defs>
+            {series.map((s, i) => {
+              const c = colorFor(s, i, palette);
+              return (
+                <linearGradient key={s.key} id={`${uid}-area-${i}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={c} stopOpacity={Math.min(0.9, fillOpacity + 0.4)} />
+                  <stop offset="92%" stopColor={c} stopOpacity={0.02} />
+                </linearGradient>
+              );
+            })}
+          </defs>
           {showGrid && (
-            <CartesianGrid stroke={gridColor} vertical={isScatter} />
+            <CartesianGrid stroke={gridColor} strokeDasharray="4 4" vertical={isScatter} />
           )}
           <XAxis
             dataKey="x"
@@ -212,7 +225,7 @@ export function ChartView({
             padding={{ left: 24, right: 24 }}
             tick={axisTickStyle(config.xAxis)}
             tickLine={false}
-            axisLine={{ stroke: config.xAxis?.color ?? "rgba(0,0,0,0.15)" }}
+            axisLine={{ stroke: config.xAxis?.color ?? "rgba(0,0,0,0.1)" }}
             hide={config.xAxis?.hide}
           >
             {config.xAxis?.title && (
@@ -225,7 +238,7 @@ export function ChartView({
             domain={domainFor(config.leftAxis)}
             tick={axisTickStyle(config.leftAxis)}
             tickLine={false}
-            axisLine={{ stroke: config.leftAxis?.color ?? "rgba(0,0,0,0.15)" }}
+            axisLine={false}
             hide={config.leftAxis?.hide}
             allowDataOverflow={config.leftAxis?.min != null || config.leftAxis?.max != null}
           >
@@ -241,7 +254,7 @@ export function ChartView({
               domain={domainFor(config.rightAxis)}
               tick={axisTickStyle(config.rightAxis)}
               tickLine={false}
-              axisLine={{ stroke: config.rightAxis?.color ?? "rgba(0,0,0,0.15)" }}
+              axisLine={false}
               hide={config.rightAxis?.hide}
               allowDataOverflow={config.rightAxis?.min != null || config.rightAxis?.max != null}
             >
@@ -260,7 +273,7 @@ export function ChartView({
             <Legend {...legendProps(legendPos)} wrapperStyle={{ fontSize: 12, color: "#615d59" }} />
           )}
 
-          {series.map((s, i) => renderSeries(s, i, type, palette, style, isScatter, fillOpacity))}
+          {series.map((s, i) => renderSeries(s, i, type, palette, style, isScatter, fillOpacity, uid))}
           {series.map((s, i) => renderTrendline(s, i, palette))}
         </ComposedChart>
       </ResponsiveContainer>
@@ -276,6 +289,7 @@ function renderSeries(
   style: NonNullable<WidgetConfig["style"]>,
   isScatter: boolean,
   fillOpacity: number,
+  uid: string,
 ) {
   const color = colorFor(s, i, palette);
   const yAxisId = s.axis === "right" ? "right" : "left";
@@ -304,9 +318,9 @@ function renderSeries(
         name={name}
         yAxisId={yAxisId}
         stroke={color}
-        strokeWidth={2}
-        dot={{ r: 3, fill: color }}
-        activeDot={{ r: 5 }}
+        strokeWidth={2.5}
+        dot={{ r: 3.5, fill: "#fff", stroke: color, strokeWidth: 2 }}
+        activeDot={{ r: 5.5, fill: color, stroke: "#fff", strokeWidth: 2 }}
         isAnimationActive={false}
         connectNulls
       >
@@ -324,9 +338,11 @@ function renderSeries(
         name={name}
         yAxisId={yAxisId}
         stroke={color}
-        fill={color}
-        fillOpacity={fillOpacity}
-        strokeWidth={2}
+        fill={`url(#${uid}-area-${i})`}
+        fillOpacity={1}
+        strokeWidth={2.5}
+        dot={false}
+        activeDot={{ r: 5, fill: color, stroke: "#fff", strokeWidth: 2 }}
         stackId={style.stacked ? "stack" : undefined}
         isAnimationActive={false}
         connectNulls
@@ -344,7 +360,8 @@ function renderSeries(
       name={name}
       yAxisId={yAxisId}
       fill={color}
-      radius={[style.barRadius ?? 4, style.barRadius ?? 4, 0, 0]}
+      radius={[style.barRadius ?? 6, style.barRadius ?? 6, 0, 0]}
+      maxBarSize={64}
       stackId={style.stacked ? "stack" : undefined}
       isAnimationActive={false}
     >
