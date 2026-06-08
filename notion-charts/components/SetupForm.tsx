@@ -26,14 +26,112 @@ type InspectResult = {
 const NUMERIC_TYPES = new Set(["number", "formula", "rollup", "checkbox"]);
 const DATE_TYPES = new Set(["date", "created_time", "last_edited_time"]);
 
-const CHART_TYPES: { value: ChartType; label: string; icon: string }[] = [
-  { value: "bar", label: "막대", icon: "▥" },
-  { value: "line", label: "선", icon: "📈" },
-  { value: "area", label: "영역", icon: "▰" },
-  { value: "scatter", label: "산점도", icon: "⁛" },
-  { value: "pie", label: "파이", icon: "◔" },
-  { value: "combo", label: "콤보", icon: "▥📈" },
-  { value: "radar", label: "방사형", icon: "✸" },
+/** Shared wrapper for the Lucide-style chart icons (currentColor = inherits text color). */
+function ChartIcon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {children}
+    </svg>
+  );
+}
+
+const CHART_TYPES: { value: ChartType; label: string; icon: React.ReactNode }[] = [
+  {
+    value: "bar",
+    label: "막대",
+    icon: (
+      <ChartIcon>
+        <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+        <path d="M18 17V9" />
+        <path d="M13 17V5" />
+        <path d="M8 17v-3" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "line",
+    label: "선",
+    icon: (
+      <ChartIcon>
+        <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+        <path d="m19 9-5 5-4-4-3 3" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "area",
+    label: "영역",
+    icon: (
+      <ChartIcon>
+        <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+        <path d="M7 11.207a.5.5 0 0 1 .146-.353l2-2a.5.5 0 0 1 .708 0l3.292 3.292a.5.5 0 0 0 .708 0l4.292-4.292a.5.5 0 0 1 .854.353V16a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1z" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "scatter",
+    label: "산점도",
+    icon: (
+      <ChartIcon>
+        <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+        <circle cx="7.5" cy="7.5" r=".5" fill="currentColor" />
+        <circle cx="18.5" cy="5.5" r=".5" fill="currentColor" />
+        <circle cx="11.5" cy="11.5" r=".5" fill="currentColor" />
+        <circle cx="7.5" cy="16.5" r=".5" fill="currentColor" />
+        <circle cx="17.5" cy="14.5" r=".5" fill="currentColor" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "pie",
+    label: "파이",
+    icon: (
+      <ChartIcon>
+        <path d="M21 12c.552 0 1.005-.449.95-.998a10 10 0 0 0-8.953-8.951c-.55-.055-.998.398-.998.95v8a1 1 0 0 0 1 1z" />
+        <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "combo",
+    label: "콤보",
+    icon: (
+      <ChartIcon>
+        <path d="M12 16v5" />
+        <path d="M16 14.639V21" />
+        <path d="M20 10.656V21" />
+        <path d="m22 3-8.646 8.646a.5.5 0 0 1-.708 0L9.354 8.354a.5.5 0 0 0-.707 0L2 15" />
+        <path d="M4 18.463V21" />
+        <path d="M8 14.656V21" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "radar",
+    label: "방사형",
+    icon: (
+      <ChartIcon>
+        <path d="M19.07 4.93A10 10 0 0 0 6.99 3.34" />
+        <path d="M4 6h.01" />
+        <path d="M2.29 9.62A10 10 0 1 0 21.31 8.35" />
+        <path d="M16.24 7.76A6 6 0 1 0 8.23 16.67" />
+        <path d="M12 18h.01" />
+        <path d="M17.99 11.66A6 6 0 0 1 15.77 16.67" />
+        <circle cx="12" cy="12" r="2" />
+        <path d="m13.41 10.59 5.66-5.66" />
+      </ChartIcon>
+    ),
+  },
 ];
 
 const PALETTE_PRESETS: { name: string; colors: string[] }[] = [
@@ -305,19 +403,22 @@ export function SetupForm() {
       : "";
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <header>
-        <h1 className="text-4xl font-bold tracking-[-0.0625em] text-[rgba(0,0,0,0.95)]">
-          Notion Charts
-        </h1>
-        <p className="mt-2 text-[#615d59]">
-          노션 데이터베이스를 엑셀급 차트로 만들어 임베드하세요.
-        </p>
-      </header>
+    <>
+      {/* ===================== LANDING — fills one screen ===================== */}
+      {!inspect && (
+        <div className="mx-auto flex min-h-[80vh] max-w-xl flex-col justify-center gap-6 py-10">
+          <header className="text-center">
+            <h1 className="text-4xl font-bold tracking-[-0.0625em] text-[rgba(0,0,0,0.95)]">
+              Notion Charts
+            </h1>
+            <p className="mt-2 text-[#615d59]">
+              노션 데이터베이스를 엑셀급 차트로 만들어 임베드하세요.
+            </p>
+          </header>
 
-      {/* STEP 1: connect */}
-      <Card>
-        <CardTitle>1. 노션에 연결</CardTitle>
+          {/* connect */}
+          <Card>
+            <CardTitle>노션에 연결</CardTitle>
         <p className="mt-2 text-sm text-[#615d59]">
           데이터베이스를 읽고 차트로 그릴 권한이 필요합니다.
         </p>
@@ -361,7 +462,7 @@ export function SetupForm() {
                   type="button"
                   onClick={handleSelectDatabase}
                   disabled={inspecting || !selectedDb}
-                  className={primaryBtn}
+                  className={`${primaryBtn} shrink-0 whitespace-nowrap`}
                 >
                   {inspecting ? "불러오는 중..." : "불러오기"}
                 </button>
@@ -432,13 +533,51 @@ export function SetupForm() {
             )}
           </div>
         )}
-      </Card>
+          </Card>
 
+          {error && (
+            <div className="rounded-md border border-[#dd5b00]/30 bg-[#dd5b00]/5 px-4 py-3 text-sm text-[#dd5b00]">
+              {error}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===================== BUILDER — opens after a DB is loaded ===================== */}
       {inspect && (
-        <div className="space-y-6">
+        <div className="mx-auto max-w-7xl space-y-6 py-6">
+          {/* top bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(0,0,0,0.06)] pb-4">
+            <button
+              type="button"
+              onClick={() => {
+                setInspect(null);
+                setSavedId(null);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.1)] bg-white px-3 py-1.5 text-sm font-medium text-[#615d59] transition-colors hover:border-[#213183]/40 hover:text-[#213183]"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="m15 18-6-6 6-6" />
+              </svg>
+              다른 DB 선택
+            </button>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">
+                {inspect.title ?? "차트 빌더"}
+              </span>
+              {workspace && (
+                <span className="rounded-full border border-[#1aae39]/30 bg-[#1aae39]/5 px-2.5 py-0.5 text-xs text-[#1aae39]">
+                  ✓ {workspace}
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,540px)] xl:grid-cols-[minmax(0,1fr)_minmax(0,660px)] lg:items-start">
+          <div className="space-y-6 min-w-0">
             <Card>
               <CardTitle>
-                2. 데이터 선택{" "}
+                데이터 선택{" "}
                 <span className="ml-2 text-sm font-normal text-[#615d59]">
                   ({properties.length}개 속성 · {inspect.rows.length}개 행)
                 </span>
@@ -454,11 +593,11 @@ export function SetupForm() {
                         onClick={() => setChartType(t.value)}
                         className={
                           chartType === t.value
-                            ? "flex flex-col items-center gap-1 rounded-md border border-[#213183] bg-[#f2f9ff] px-2 py-2 text-xs font-semibold text-[#213183]"
-                            : "flex flex-col items-center gap-1 rounded-md border border-[rgba(0,0,0,0.1)] bg-white px-2 py-2 text-xs text-[rgba(0,0,0,0.95)] hover:border-[rgba(0,0,0,0.25)]"
+                            ? "flex flex-col items-center gap-1.5 rounded-lg border border-[#213183] bg-[#f2f9ff] px-2 py-3 text-xs font-semibold text-[#213183]"
+                            : "flex flex-col items-center gap-1.5 rounded-lg border border-[rgba(0,0,0,0.1)] bg-white px-2 py-3 text-xs text-[#615d59] transition-colors hover:border-[#213183]/40 hover:text-[#213183]"
                         }
                       >
-                        <span className="text-base leading-none">{t.icon}</span>
+                        {t.icon}
                         {t.label}
                       </button>
                     ))}
@@ -539,7 +678,7 @@ export function SetupForm() {
 
                 {/* SORT / LIMIT */}
                 {!isScatter && (
-                  <Section title="정렬 & 표시 개수">
+                  <Section title="정렬 & 표시 개수" defaultOpen={false}>
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="정렬 기준">
                         <select
@@ -578,71 +717,11 @@ export function SetupForm() {
               </div>
             </Card>
 
-            {/* PREVIEW — appears as soon as data is chosen */}
-            {xKey && series.length > 0 && (
-              <Card>
-                <div className="flex items-center justify-between">
-                  <CardTitle>3. 미리보기</CardTitle>
-                  <span className="rounded-full bg-[#f2f9ff] px-2 py-0.5 text-xs font-medium text-[#213183]">
-                    실시간
-                  </span>
-                </div>
-                <div
-                  className="mt-4 rounded-lg border border-[rgba(0,0,0,0.08)] p-4"
-                  style={{ background: style.background === "transparent" ? "#fff" : style.background }}
-                >
-                  {title && (
-                    <h3
-                      className="mb-2 text-sm font-semibold"
-                      style={{ color: style.background === "#1f2937" ? "#f9fafb" : "rgba(0,0,0,0.9)" }}
-                    >
-                      {title}
-                    </h3>
-                  )}
-                  <div className="h-[420px]">
-                    <ChartView type={chartType} data={previewData} config={config} />
-                  </div>
-                </div>
-                {previewData.length === 0 && (
-                  <p className="mt-2 text-xs text-[#a39e98]">
-                    선택한 X 축 / 계열에 표시할 수 있는 값이 없습니다. 다른 속성을 골라보세요.
-                  </p>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className={`${primaryBtn} mt-4 w-full`}
-                >
-                  {saving ? "저장 중..." : "위젯 저장 + 임베드 URL 발급"}
-                </button>
-
-                {savedId && (
-                  <div className="mt-4 rounded-md bg-[#f6f5f4] p-3">
-                    <p className="text-xs text-[#615d59]">
-                      노션에서 <code className="rounded bg-white px-1">/embed</code> 블록에 붙여넣으세요.
-                    </p>
-                    <div className="mt-2 flex gap-2">
-                      <input readOnly value={embedUrl} className={`${inputClass} font-mono text-xs`} />
-                      <button
-                        type="button"
-                        onClick={() => navigator.clipboard.writeText(embedUrl)}
-                        className={primaryBtn}
-                      >
-                        복사
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </Card>
-            )}
-
             {/* DESIGN */}
             <Card>
-              <CardTitle>4. 디자인 & 축</CardTitle>
+              <CardTitle>디자인 & 축</CardTitle>
               <div className="mt-4 space-y-5">
-                <Section title="색상 팔레트">
+                <Section title="색상 팔레트" defaultOpen={false}>
                   <div className="flex flex-wrap gap-2">
                     {PALETTE_PRESETS.map((p) => (
                       <button
@@ -670,7 +749,7 @@ export function SetupForm() {
                   </div>
                 </Section>
 
-                <Section title="배경 & 격자">
+                <Section title="배경 & 격자" defaultOpen={false}>
                   <Field label="차트 배경">
                     <div className="flex flex-wrap items-center gap-2">
                       {BG_PRESETS.map((b) => (
@@ -708,7 +787,7 @@ export function SetupForm() {
                   </div>
                 </Section>
 
-                <Section title="옵션">
+                <Section title="옵션" defaultOpen={false}>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-2">
                     <Field label="범례 위치">
                       <select
@@ -771,7 +850,7 @@ export function SetupForm() {
 
                 {/* AXES */}
                 {isCartesian && (
-                  <Section title="축 설정">
+                  <Section title="축 설정" defaultOpen={false}>
                     <AxisEditor
                       title="X 축"
                       axis={xAxis}
@@ -796,15 +875,95 @@ export function SetupForm() {
                 )}
               </div>
             </Card>
-        </div>
-      )}
+          </div>
 
-      {error && (
-        <div className="rounded-md border border-[#dd5b00]/30 bg-[#dd5b00]/5 px-4 py-3 text-sm text-[#dd5b00]">
-          {error}
+          {/* RIGHT — sticky live preview */}
+          <div className="lg:sticky lg:top-6">
+            {xKey && series.length > 0 ? (
+              <Card>
+                <div className="flex items-center justify-between">
+                  <CardTitle>미리보기</CardTitle>
+                  <span className="rounded-full bg-[#f2f9ff] px-2 py-0.5 text-xs font-medium text-[#213183]">
+                    실시간
+                  </span>
+                </div>
+                <div
+                  className="mt-4 rounded-lg border border-[rgba(0,0,0,0.08)] p-4"
+                  style={{ background: style.background === "transparent" ? "#fff" : style.background }}
+                >
+                  {title && (
+                    <h3
+                      className="mb-2 text-sm font-semibold"
+                      style={{ color: style.background === "#1f2937" ? "#f9fafb" : "rgba(0,0,0,0.9)" }}
+                    >
+                      {title}
+                    </h3>
+                  )}
+                  <div className="h-[600px]">
+                    <ChartView type={chartType} data={previewData} config={config} />
+                  </div>
+                </div>
+                {previewData.length === 0 && (
+                  <p className="mt-2 text-xs text-[#a39e98]">
+                    선택한 X 축 / 계열에 표시할 수 있는 값이 없습니다. 다른 속성을 골라보세요.
+                  </p>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className={`${primaryBtn} mt-4 w-full`}
+                >
+                  {saving ? "저장 중..." : "위젯 저장 + 임베드 URL 발급"}
+                </button>
+
+                {savedId && (
+                  <div className="mt-4 rounded-md bg-[#f6f5f4] p-3">
+                    <p className="text-xs text-[#615d59]">
+                      노션에서 <code className="rounded bg-white px-1">/embed</code> 블록에 붙여넣으세요.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <input readOnly value={embedUrl} className={`${inputClass} font-mono text-xs`} />
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(embedUrl)}
+                        className={primaryBtn}
+                      >
+                        복사
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            ) : (
+              <Card>
+                <div className="flex items-center justify-between">
+                  <CardTitle>미리보기</CardTitle>
+                  <span className="rounded-full bg-[#f6f5f4] px-2 py-0.5 text-xs font-medium text-[#a39e98]">
+                    대기 중
+                  </span>
+                </div>
+                <div className="mt-4 flex h-[600px] items-center justify-center rounded-lg border border-dashed border-[rgba(0,0,0,0.12)] text-center">
+                  <p className="px-6 text-sm text-[#a39e98]">
+                    왼쪽에서 X 축과 데이터 계열을 선택하면
+                    <br />
+                    여기에 실시간 미리보기가 나타납니다.
+                  </p>
+                </div>
+              </Card>
+            )}
+          </div>
+          </div>
+
+          {error && (
+            <div className="rounded-md border border-[#dd5b00]/30 bg-[#dd5b00]/5 px-4 py-3 text-sm text-[#dd5b00]">
+              {error}
+            </div>
+          )}
         </div>
       )}
-    </div>
+    </>
   );
 }
 
@@ -1091,13 +1250,42 @@ function Toggle({
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({
+  title,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <div>
-      <h3 className="mb-2 text-xs font-bold uppercase tracking-wide text-[#a39e98]">
-        {title}
-      </h3>
-      <div className="space-y-3">{children}</div>
+    <div className="border-b border-[rgba(0,0,0,0.06)] pb-3 last:border-0 last:pb-0">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="group flex w-full items-center justify-between py-1 text-left"
+      >
+        <span className="text-xs font-bold uppercase tracking-wide text-[#a39e98] transition-colors group-hover:text-[#615d59]">
+          {title}
+        </span>
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden
+          className={`text-[#a39e98] transition-transform ${open ? "" : "-rotate-90"}`}
+        >
+          <path d="m6 9 6 6 6-6" />
+        </svg>
+      </button>
+      {open && <div className="mt-2 space-y-3">{children}</div>}
     </div>
   );
 }
