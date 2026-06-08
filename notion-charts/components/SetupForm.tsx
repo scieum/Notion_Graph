@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Aggregation,
   AxisConfig,
@@ -80,6 +80,14 @@ export function SetupForm() {
   const [error, setError] = useState<string | null>(null);
   const [inspect, setInspect] = useState<InspectResult | null>(null);
 
+  // OAuth connection state
+  const [connected, setConnected] = useState<boolean | null>(null);
+  const [workspace, setWorkspace] = useState<string | null>(null);
+  const [databases, setDatabases] = useState<{ dataSourceId: string; title: string }[]>([]);
+  const [selectedDb, setSelectedDb] = useState("");
+  const [loadingDbs, setLoadingDbs] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
+
   // chart configuration
   const [chartType, setChartType] = useState<ChartType>("bar");
   const [title, setTitle] = useState("");
@@ -143,6 +151,85 @@ export function SetupForm() {
     }
   }, [inspect, xKey, chartType, config]);
 
+  const applyInspectResult = useCallback((json: InspectResult) => {
+    setInspect(json);
+    setSavedId(null);
+    if (json.title) setTitle(json.title);
+    const props = json.properties ?? [];
+    if (props[0]) setXKey(props[0].name);
+    const firstNum = props.find((p) => NUMERIC_TYPES.has(p.type));
+    if (firstNum) {
+      setSeries([{ key: firstNum.name, label: firstNum.name, axis: "left" }]);
+      setAggregation("sum");
+    } else {
+      setSeries([{ key: COUNT_KEY, label: "개수", aggregation: "count" }]);
+      setAggregation("count");
+    }
+  }, []);
+
+  const loadDatabases = useCallback(async () => {
+    setLoadingDbs(true);
+    try {
+      const res = await fetch("/api/notion/databases");
+      const json = await res.json();
+      if (res.ok) {
+        const dbs: { dataSourceId: string; title: string }[] = json.databases ?? [];
+        setDatabases(dbs);
+        if (dbs[0]) setSelectedDb(dbs[0].dataSourceId);
+      }
+    } finally {
+      setLoadingDbs(false);
+    }
+  }, []);
+
+  // On mount: surface OAuth redirect messages and check connection status.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const err = params.get("error");
+    if (err) setError(decodeURIComponent(err));
+    fetch("/api/notion/status")
+      .then((r) => r.json())
+      .then((s) => {
+        setConnected(!!s.connected);
+        setWorkspace(s.workspace ?? null);
+        if (s.connected) loadDatabases();
+      })
+      .catch(() => setConnected(false));
+    if (params.get("connected") || err) {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [loadDatabases]);
+
+  async function handleSelectDatabase() {
+    if (!selectedDb) return;
+    setError(null);
+    setInspecting(true);
+    setInspect(null);
+    try {
+      const res = await fetch("/api/notion/inspect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataSourceId: selectedDb }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "불러오기 실패");
+      applyInspectResult(json);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "오류");
+    } finally {
+      setInspecting(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    await fetch("/api/notion/disconnect", { method: "POST" });
+    setConnected(false);
+    setWorkspace(null);
+    setDatabases([]);
+    setSelectedDb("");
+    setInspect(null);
+  }
+
   async function handleInspect(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -157,19 +244,7 @@ export function SetupForm() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "조회 실패");
-      setInspect(json);
-      if (json.title) setTitle(json.title);
-      if (json.properties[0]) setXKey(json.properties[0].name);
-      const firstNum = json.properties.find((p: NotionPropertyMeta) =>
-        NUMERIC_TYPES.has(p.type),
-      );
-      if (firstNum) {
-        setSeries([{ key: firstNum.name, label: firstNum.name, axis: "left" }]);
-        setAggregation("sum");
-      } else {
-        setSeries([{ key: COUNT_KEY, label: "개수", aggregation: "count" }]);
-        setAggregation("count");
-      }
+      applyInspectResult(json);
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류");
     } finally {
@@ -182,16 +257,19 @@ export function SetupForm() {
     setError(null);
     setSaving(true);
     try {
+      const payload: Record<string, unknown> = {
+        dataSourceId: inspect.dataSourceId,
+        chartType,
+        config,
+      };
+      if (manualMode) {
+        payload.token = token;
+        payload.databaseId = databaseId;
+      }
       const res = await fetch("/api/widgets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token,
-          databaseId,
-          dataSourceId: inspect.dataSourceId,
-          chartType,
-          config,
-        }),
+        body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "저장 실패");
@@ -239,34 +317,121 @@ export function SetupForm() {
 
       {/* STEP 1: connect */}
       <Card>
-        <CardTitle>1. 노션 연결</CardTitle>
-        <form className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2" onSubmit={handleInspect}>
-          <Field label="Notion Integration 토큰" hint="ntn_... 또는 secret_...로 시작">
-            <input
-              type="password"
-              required
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              className={inputClass}
-              placeholder="ntn_xxxxxxxxxxxx"
-            />
-          </Field>
-          <Field label="데이터베이스 ID" hint="노션 DB URL의 32자리 hex 부분">
-            <input
-              type="text"
-              required
-              value={databaseId}
-              onChange={(e) => setDatabaseId(e.target.value)}
-              className={inputClass}
-              placeholder="abcdef0123456789..."
-            />
-          </Field>
-          <div className="md:col-span-2">
-            <button type="submit" disabled={inspecting} className={primaryBtn}>
-              {inspecting ? "조회 중..." : "DB 스키마 조회"}
-            </button>
+        <CardTitle>1. 노션에 연결</CardTitle>
+        <p className="mt-2 text-sm text-[#615d59]">
+          데이터베이스를 읽고 차트로 그릴 권한이 필요합니다.
+        </p>
+
+        {connected === null ? (
+          <p className="mt-4 text-sm text-[#a39e98]">연결 상태 확인 중...</p>
+        ) : connected ? (
+          <div className="mt-4 space-y-4">
+            <div className="flex items-center justify-between rounded-md border border-[#1aae39]/30 bg-[#1aae39]/5 px-3 py-2">
+              <span className="text-sm text-[rgba(0,0,0,0.85)]">
+                ✓ 연결됨{workspace ? ` · ${workspace}` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={handleDisconnect}
+                className="text-xs text-[#615d59] underline hover:text-[#dd5b00]"
+              >
+                연결 해제
+              </button>
+            </div>
+            <Field label="데이터베이스 선택">
+              <div className="flex gap-2">
+                <select
+                  value={selectedDb}
+                  onChange={(e) => setSelectedDb(e.target.value)}
+                  className={inputClass}
+                  disabled={loadingDbs || databases.length === 0}
+                >
+                  {databases.length === 0 && (
+                    <option value="">
+                      {loadingDbs ? "불러오는 중..." : "접근 가능한 DB 없음"}
+                    </option>
+                  )}
+                  {databases.map((d) => (
+                    <option key={d.dataSourceId} value={d.dataSourceId}>
+                      {d.title}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleSelectDatabase}
+                  disabled={inspecting || !selectedDb}
+                  className={primaryBtn}
+                >
+                  {inspecting ? "불러오는 중..." : "불러오기"}
+                </button>
+              </div>
+            </Field>
+            {databases.length === 0 && !loadingDbs && (
+              <p className="text-xs text-[#a39e98]">
+                권한 준 DB가 없습니다. ‘연결 해제’ 후 다시 연결하면서 노션 인증 화면에서 사용할
+                페이지·데이터베이스를 선택하세요.
+              </p>
+            )}
           </div>
-        </form>
+        ) : (
+          <div className="mt-4 space-y-3">
+            <a
+              href="/api/notion/connect"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md bg-[#191919] px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-black"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                <polyline points="10 17 15 12 10 7" />
+                <line x1="15" y1="12" x2="3" y2="12" />
+              </svg>
+              Notion으로 연결하기
+            </a>
+            <p className="text-xs text-[#615d59]">
+              Notion 인증 화면에서 사용할 페이지·데이터베이스를 선택하면 해당 항목에만 권한이
+              부여됩니다.
+            </p>
+            <button
+              type="button"
+              onClick={() => setManualMode((v) => !v)}
+              className="text-xs text-[#615d59] underline hover:text-[#213183]"
+            >
+              {manualMode ? "OAuth로 연결하기" : "또는 토큰으로 직접 연결"}
+            </button>
+            {manualMode && (
+              <form
+                className="grid grid-cols-1 gap-4 pt-1 md:grid-cols-2"
+                onSubmit={handleInspect}
+              >
+                <Field label="Notion Integration 토큰" hint="ntn_... 또는 secret_...로 시작">
+                  <input
+                    type="password"
+                    required
+                    value={token}
+                    onChange={(e) => setToken(e.target.value)}
+                    className={inputClass}
+                    placeholder="ntn_xxxxxxxxxxxx"
+                  />
+                </Field>
+                <Field label="데이터베이스 ID" hint="노션 DB URL의 32자리 hex 부분">
+                  <input
+                    type="text"
+                    required
+                    value={databaseId}
+                    onChange={(e) => setDatabaseId(e.target.value)}
+                    className={inputClass}
+                    placeholder="abcdef0123456789..."
+                  />
+                </Field>
+                <div className="md:col-span-2">
+                  <button type="submit" disabled={inspecting} className={primaryBtn}>
+                    {inspecting ? "조회 중..." : "DB 스키마 조회"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        )}
       </Card>
 
       {inspect && (

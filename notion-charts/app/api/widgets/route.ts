@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import type { NextRequest } from "next/server";
 import { encryptToken } from "@/lib/crypto";
 import { createWidget } from "@/lib/db";
 
@@ -54,8 +55,9 @@ const Style = z.object({
 });
 
 const Body = z.object({
-  token: z.string().min(10),
-  databaseId: z.string().min(8),
+  // token/databaseId are optional: OAuth flow supplies the token via httpOnly cookie.
+  token: z.string().min(10).optional(),
+  databaseId: z.string().optional(),
   dataSourceId: z.string().min(8),
   chartType: z.enum(["bar", "line", "area", "scatter", "pie", "combo", "radar"]),
   config: z.object({
@@ -75,7 +77,7 @@ const Body = z.object({
   }),
 });
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   let body: unknown;
   try {
     body = await request.json();
@@ -86,13 +88,27 @@ export async function POST(request: Request) {
   if (!parsed.success) {
     return Response.json({ error: "필수 필드가 누락되었습니다." }, { status: 400 });
   }
+
+  // Token source: explicit body token (manual mode) takes precedence; otherwise
+  // reuse the encrypted OAuth token from the httpOnly cookie.
+  const cookieCipher = request.cookies.get("notion_token")?.value;
+  const tokenCiphertext = parsed.data.token
+    ? encryptToken(parsed.data.token)
+    : cookieCipher;
+  if (!tokenCiphertext) {
+    return Response.json(
+      { error: "노션에 연결되지 않았습니다." },
+      { status: 401 },
+    );
+  }
+
   try {
     const id = nanoid(10);
     await createWidget({
       id,
-      database_id: parsed.data.databaseId,
+      database_id: parsed.data.databaseId ?? "",
       data_source_id: parsed.data.dataSourceId,
-      token_ciphertext: encryptToken(parsed.data.token),
+      token_ciphertext: tokenCiphertext,
       chart_type: parsed.data.chartType,
       config: parsed.data.config,
     });
