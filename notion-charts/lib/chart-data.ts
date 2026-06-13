@@ -85,6 +85,15 @@ export function buildChartData(
     data = applySortLimit(data, config, series);
   }
 
+  if (config.style?.omitZero) {
+    data = data.filter((d) =>
+      series.some((s) => {
+        const v = Number(d[s.key]);
+        return Number.isFinite(v) && v !== 0;
+      }),
+    );
+  }
+
   addTrendlines(data, series);
   return data;
 }

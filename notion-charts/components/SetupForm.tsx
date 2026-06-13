@@ -201,11 +201,15 @@ export function SetupForm() {
     showGrid: true,
     legend: "bottom",
     smooth: false,
-    showDataLabels: false,
+    showDataLabels: true,
     stacked: false,
     donut: false,
     fillOpacity: 0.25,
+    omitZero: false,
   });
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  const toggleRow = (id: string) => setOpenRow((cur) => (cur === id ? null : id));
   const [xAxis, setXAxis] = useState<AxisConfig>({});
   const [leftAxis, setLeftAxis] = useState<AxisConfig>({});
   const [rightAxis, setRightAxis] = useState<AxisConfig>({});
@@ -545,93 +549,289 @@ export function SetupForm() {
 
       {/* ===================== BUILDER — opens after a DB is loaded ===================== */}
       {inspect && (
-        <div className="mx-auto max-w-7xl space-y-6 py-6">
+        <div className="mx-auto max-w-5xl py-6">
           {/* top bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[rgba(0,0,0,0.06)] pb-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <button
               type="button"
               onClick={() => {
                 setInspect(null);
                 setSavedId(null);
               }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.1)] bg-white px-3 py-1.5 text-sm font-medium text-[#615d59] transition-colors hover:border-[#213183]/40 hover:text-[#213183]"
+              className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-[#787774] transition-colors hover:bg-[rgba(55,53,47,0.06)]"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <path d="m15 18-6-6 6-6" />
               </svg>
               다른 DB 선택
             </button>
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">
-                {inspect.title ?? "차트 빌더"}
+            {workspace && (
+              <span className="rounded-full border border-[#1aae39]/30 bg-[#1aae39]/5 px-2.5 py-0.5 text-xs text-[#1aae39]">
+                ✓ {workspace}
               </span>
-              {workspace && (
-                <span className="rounded-full border border-[#1aae39]/30 bg-[#1aae39]/5 px-2.5 py-0.5 text-xs text-[#1aae39]">
-                  ✓ {workspace}
+            )}
+          </div>
+
+          {/* hero chart card */}
+          <div className="overflow-hidden rounded-xl border border-[rgba(0,0,0,0.09)] bg-white shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
+            {/* notion-style toolbar */}
+            <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
+              <div className="flex min-w-0 items-center gap-1.5 rounded-md bg-[rgba(55,53,47,0.06)] px-2.5 py-1">
+                <span className="text-[#9b9a97]">
+                  <Ic.bar />
                 </span>
+                <span className="truncate text-[13px] font-medium text-[rgba(0,0,0,0.82)]">
+                  {title || inspect.title || "제목 없음"}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPanelOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.1)] bg-white px-2.5 py-1.5 text-[13px] font-medium text-[#787774] transition-colors hover:bg-[rgba(55,53,47,0.04)]"
+                aria-label="설정 열기"
+              >
+                <Ic.settings />
+                설정
+              </button>
+            </div>
+
+            {/* chart */}
+            <div
+              className="px-4 pb-5 pt-1"
+              style={{ background: style.background === "transparent" ? "#fff" : style.background }}
+            >
+              {xKey && series.length > 0 && previewData.length > 0 ? (
+                <div className="h-[460px]">
+                  <ChartView type={chartType} data={previewData} config={config} />
+                </div>
+              ) : (
+                <div className="flex h-[460px] items-center justify-center text-center">
+                  <p className="px-6 text-sm text-[#a39e98]">
+                    표시할 데이터가 없습니다.
+                    <br />
+                    설정에서 X축과 데이터 계열을 골라보세요.
+                  </p>
+                </div>
               )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-[360px_minmax(0,1fr)] xl:grid-cols-[420px_minmax(0,1fr)] lg:items-start">
-          <div className="space-y-6 min-w-0">
-            <Card>
-              <CardTitle>
-                데이터 선택{" "}
-                <span className="ml-2 text-sm font-normal text-[#615d59]">
-                  ({properties.length}개 속성 · {inspect.rows.length}개 행)
-                </span>
-              </CardTitle>
+          {/* save bar */}
+          <div className="mt-4 space-y-3">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className={`${primaryBtn} w-full`}
+            >
+              {saving ? "저장 중..." : "위젯 저장 + 임베드 URL 발급"}
+            </button>
+            {savedId && (
+              <div className="rounded-md bg-[#f6f5f4] p-3">
+                <p className="text-xs text-[#615d59]">
+                  노션에서 <code className="rounded bg-white px-1">/embed</code> 블록에 붙여넣으세요.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <input readOnly value={embedUrl} className={`${inputClass} font-mono text-xs`} />
+                  <button
+                    type="button"
+                    onClick={() => navigator.clipboard.writeText(embedUrl)}
+                    className={primaryBtn}
+                  >
+                    복사
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
 
-              <div className="mt-4 space-y-5">
-                <Section title="차트 종류">
-                  <div className="grid grid-cols-4 gap-2">
-                    {CHART_TYPES.map((t) => (
-                      <button
-                        key={t.value}
-                        type="button"
-                        onClick={() => setChartType(t.value)}
-                        className={
-                          chartType === t.value
-                            ? "flex flex-col items-center gap-1.5 rounded-lg border border-[#213183] bg-[#f2f9ff] px-2 py-3 text-xs font-semibold text-[#213183]"
-                            : "flex flex-col items-center gap-1.5 rounded-lg border border-[rgba(0,0,0,0.1)] bg-white px-2 py-3 text-xs text-[#615d59] transition-colors hover:border-[#213183]/40 hover:text-[#213183]"
-                        }
-                      >
-                        {t.icon}
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-                </Section>
+          {error && (
+            <div className="mt-4 rounded-md border border-[#dd5b00]/30 bg-[#dd5b00]/5 px-4 py-3 text-sm text-[#dd5b00]">
+              {error}
+            </div>
+          )}
 
-                <Section title="기본">
-                  <Field label="제목">
+          {/* ===== Notion-style View settings drawer ===== */}
+          {panelOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-black/10"
+                onClick={() => setPanelOpen(false)}
+              />
+              <aside className="fixed right-0 top-0 z-50 flex h-full w-[340px] flex-col bg-white shadow-[rgba(15,15,15,0.1)_-6px_0px_28px]">
+                {/* header */}
+                <div className="flex items-center justify-between px-4 pb-1 pt-4">
+                  <span className="text-[15px] font-semibold text-[rgba(0,0,0,0.85)]">
+                    차트 설정
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPanelOpen(false)}
+                    aria-label="닫기"
+                    className="rounded p-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)]"
+                  >
+                    <Ic.x />
+                  </button>
+                </div>
+
+                {/* title row */}
+                <div className="px-3 pb-2 pt-1">
+                  <div className="flex items-center gap-2 rounded-md border border-[rgba(0,0,0,0.09)] bg-[#f7f7f5] px-2.5 py-2">
+                    <span className="text-[#9b9a97]">
+                      <Ic.bar />
+                    </span>
                     <input
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
-                      className={inputClass}
-                      placeholder="차트 제목"
+                      placeholder="제목 없음"
+                      className="flex-1 bg-transparent text-sm font-medium text-[rgba(0,0,0,0.85)] placeholder:text-[#9b9a97] focus:outline-none"
                     />
-                  </Field>
-                  <Field label={isScatter ? "X 축 (숫자)" : "X 축 / 카테고리"}>
-                    <select
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto pb-8">
+                  {/* layout + chart type */}
+                  <PanelSection>
+                    <RowStatic icon={<Ic.layout />} label="레이아웃" value="차트" />
+                    <div className="px-2 pb-1 pt-1.5">
+                      <div className="flex flex-wrap gap-1 rounded-lg border border-[rgba(0,0,0,0.08)] bg-[#f7f7f5] p-1">
+                        {CHART_TYPES.map((t) => (
+                          <button
+                            key={t.value}
+                            type="button"
+                            onClick={() => setChartType(t.value)}
+                            title={t.label}
+                            className={
+                              chartType === t.value
+                                ? "flex h-9 flex-1 items-center justify-center rounded-md bg-white text-[#37352f] shadow-[rgba(15,15,15,0.1)_0px_1px_2px] [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                : "flex h-9 flex-1 items-center justify-center rounded-md text-[#9b9a97] transition-colors hover:text-[#37352f] [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                            }
+                          >
+                            {t.icon}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </PanelSection>
+
+                  <Divider />
+
+                  {/* X axis */}
+                  <PanelSection title="X축">
+                    <RowSelect
+                      icon={<Ic.xaxis />}
+                      label="표시 항목"
                       value={xKey}
                       onChange={(e) => setXKey(e.target.value)}
-                      className={inputClass}
                     >
                       {(isScatter ? numericProps : properties).map((p) => (
                         <option key={p.name} value={p.name}>
-                          {p.name} ({p.type})
+                          {p.name}
                         </option>
                       ))}
-                    </select>
-                  </Field>
-                  {!isScatter && (
-                    <Field label="기본 집계 방식">
-                      <select
+                    </RowSelect>
+                    {!isScatter && (
+                      <RowSelect
+                        icon={<Ic.sort />}
+                        label="정렬"
+                        value={sortBy === "none" ? "none" : `${sortBy}-${sortDir}`}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "none") {
+                            setSortBy("none");
+                          } else {
+                            const [b, d] = v.split("-");
+                            setSortBy(b as "x" | "y");
+                            setSortDir(d as "asc" | "desc");
+                          }
+                        }}
+                      >
+                        <option value="none">정렬 안 함</option>
+                        <option value="x-asc">X축 오름차순</option>
+                        <option value="x-desc">X축 내림차순</option>
+                        <option value="y-asc">값 오름차순</option>
+                        <option value="y-desc">값 내림차순</option>
+                      </RowSelect>
+                    )}
+                    {!isScatter && (
+                      <RowToggleRow
+                        icon={<Ic.eyeOff />}
+                        label="0 값 숨기기"
+                        checked={!!style.omitZero}
+                        onChange={(v) => setStyle((s) => ({ ...s, omitZero: v }))}
+                      />
+                    )}
+                    {!isScatter && (
+                      <RowExpand
+                        icon={<Ic.count />}
+                        label="최대 개수"
+                        value={limit > 0 ? `${limit}개` : "전체"}
+                        open={openRow === "limit"}
+                        onToggle={() => toggleRow("limit")}
+                      >
+                        <input
+                          type="number"
+                          min={0}
+                          value={limit}
+                          onChange={(e) => setLimit(Number(e.target.value))}
+                          className={inputClass}
+                          placeholder="0 = 전체"
+                        />
+                      </RowExpand>
+                    )}
+                  </PanelSection>
+
+                  <Divider />
+
+                  {/* Y axis */}
+                  <PanelSection title="Y축">
+                    <RowExpand
+                      icon={<Ic.yaxis />}
+                      label="데이터 계열"
+                      value={
+                        series.length === 1
+                          ? series[0].label ?? series[0].key
+                          : `${series.length}개 계열`
+                      }
+                      open={openRow === "series"}
+                      onToggle={() => toggleRow("series")}
+                    >
+                      <div className="space-y-3">
+                        {series.map((s, i) => (
+                          <SeriesCard
+                            key={i}
+                            index={i}
+                            series={s}
+                            chartType={chartType}
+                            isCartesian={isCartesian}
+                            isScatter={isScatter}
+                            numericProps={numericProps}
+                            dateProps={properties.filter((p) => DATE_TYPES.has(p.type))}
+                            paletteColor={
+                              (style.palette ?? DEFAULT_PALETTE)[
+                                i % (style.palette ?? DEFAULT_PALETTE).length
+                              ]
+                            }
+                            onChange={(patch) => updateSeries(i, patch)}
+                            onRemove={series.length > 1 ? () => removeSeries(i) : undefined}
+                          />
+                        ))}
+                        <button type="button" onClick={addSeries} className={ghostBtn}>
+                          + 계열 추가
+                        </button>
+                        {chartType === "pie" && series.length > 1 && (
+                          <p className="text-xs text-[#a39e98]">
+                            파이 차트는 첫 번째 계열만 사용합니다.
+                          </p>
+                        )}
+                      </div>
+                    </RowExpand>
+                    {!isScatter && (
+                      <RowSelect
+                        icon={<Ic.group />}
+                        label="집계 방식"
                         value={aggregation}
                         onChange={(e) => setAggregation(e.target.value as Aggregation)}
-                        className={inputClass}
                       >
                         <option value="sum">합계</option>
                         <option value="count">개수</option>
@@ -640,326 +840,202 @@ export function SetupForm() {
                         <option value="max">최대</option>
                         <option value="median">중앙값</option>
                         <option value="none">집계 안 함</option>
-                      </select>
-                    </Field>
-                  )}
-                </Section>
-
-                {/* SERIES */}
-                <Section title="데이터 계열">
-                  <div className="space-y-3">
-                    {series.map((s, i) => (
-                      <SeriesCard
-                        key={i}
-                        index={i}
-                        series={s}
-                        chartType={chartType}
-                        isCartesian={isCartesian}
-                        isScatter={isScatter}
-                        numericProps={numericProps}
-                        dateProps={properties.filter((p) => DATE_TYPES.has(p.type))}
-                        paletteColor={
-                          (style.palette ?? DEFAULT_PALETTE)[i % (style.palette ?? DEFAULT_PALETTE).length]
-                        }
-                        onChange={(patch) => updateSeries(i, patch)}
-                        onRemove={series.length > 1 ? () => removeSeries(i) : undefined}
-                      />
-                    ))}
-                    <button type="button" onClick={addSeries} className={ghostBtn}>
-                      + 계열 추가
-                    </button>
-                    {chartType === "pie" && series.length > 1 && (
-                      <p className="text-xs text-[#a39e98]">
-                        파이 차트는 첫 번째 계열만 사용합니다.
-                      </p>
-                    )}
-                  </div>
-                </Section>
-
-                {/* SORT / LIMIT */}
-                {!isScatter && (
-                  <Section title="정렬 & 표시 개수" defaultOpen={false}>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="정렬 기준">
-                        <select
-                          value={sortBy}
-                          onChange={(e) => setSortBy(e.target.value as "x" | "y" | "none")}
-                          className={inputClass}
-                        >
-                          <option value="none">없음</option>
-                          <option value="x">X 기준</option>
-                          <option value="y">값 기준</option>
-                        </select>
-                      </Field>
-                      <Field label="방향">
-                        <select
-                          value={sortDir}
-                          onChange={(e) => setSortDir(e.target.value as "asc" | "desc")}
-                          className={inputClass}
-                          disabled={sortBy === "none"}
-                        >
-                          <option value="asc">오름차순</option>
-                          <option value="desc">내림차순</option>
-                        </select>
-                      </Field>
-                    </div>
-                    <Field label="최대 항목 수 (0 = 전체)">
-                      <input
-                        type="number"
-                        min={0}
-                        value={limit}
-                        onChange={(e) => setLimit(Number(e.target.value))}
-                        className={inputClass}
-                      />
-                    </Field>
-                  </Section>
-                )}
-              </div>
-            </Card>
-
-            {/* DESIGN */}
-            <Card>
-              <CardTitle>디자인 & 축</CardTitle>
-              <div className="mt-4 space-y-5">
-                <Section title="색상 팔레트" defaultOpen={false}>
-                  <div className="flex flex-wrap gap-2">
-                    {PALETTE_PRESETS.map((p) => (
-                      <button
-                        key={p.name}
-                        type="button"
-                        onClick={() => setStyle((s) => ({ ...s, palette: p.colors }))}
-                        className={
-                          JSON.stringify(style.palette) === JSON.stringify(p.colors)
-                            ? "flex items-center gap-2 rounded-md border border-[#213183] bg-[#f2f9ff] px-2.5 py-1.5"
-                            : "flex items-center gap-2 rounded-md border border-[rgba(0,0,0,0.1)] px-2.5 py-1.5 hover:border-[rgba(0,0,0,0.25)]"
-                        }
-                      >
-                        <span className="flex">
-                          {p.colors.slice(0, 5).map((c) => (
-                            <span
-                              key={c}
-                              className="h-3.5 w-3.5 rounded-sm"
-                              style={{ background: c, marginLeft: -2, border: "1px solid #fff" }}
-                            />
-                          ))}
-                        </span>
-                        <span className="text-xs">{p.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </Section>
-
-                <Section title="배경 & 격자" defaultOpen={false}>
-                  <Field label="차트 배경">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {BG_PRESETS.map((b) => (
-                        <button
-                          key={b.name}
-                          type="button"
-                          onClick={() => setStyle((s) => ({ ...s, background: b.color }))}
-                          className={
-                            style.background === b.color
-                              ? "rounded-md border border-[#213183] bg-[#f2f9ff] px-2.5 py-1.5 text-xs font-semibold text-[#213183]"
-                              : "rounded-md border border-[rgba(0,0,0,0.1)] px-2.5 py-1.5 text-xs hover:border-[rgba(0,0,0,0.25)]"
-                          }
-                        >
-                          {b.name}
-                        </button>
-                      ))}
-                      <ColorDot
-                        value={style.background === "transparent" ? "#ffffff" : style.background ?? "#ffffff"}
-                        onChange={(c) => setStyle((s) => ({ ...s, background: c }))}
-                      />
-                    </div>
-                  </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Toggle
-                      label="격자선"
-                      checked={style.showGrid !== false}
-                      onChange={(v) => setStyle((s) => ({ ...s, showGrid: v }))}
-                    />
-                    <Field label="격자 색상">
-                      <ColorDot
-                        value={style.gridColor ?? "#e5e5e5"}
-                        onChange={(c) => setStyle((s) => ({ ...s, gridColor: c }))}
-                      />
-                    </Field>
-                  </div>
-                </Section>
-
-                <Section title="옵션" defaultOpen={false}>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-                    <Field label="범례 위치">
-                      <select
-                        value={style.legend ?? "bottom"}
-                        onChange={(e) =>
-                          setStyle((s) => ({ ...s, legend: e.target.value as LegendPosition }))
-                        }
-                        className={inputClass}
-                      >
-                        <option value="top">위</option>
-                        <option value="bottom">아래</option>
-                        <option value="left">왼쪽</option>
-                        <option value="right">오른쪽</option>
-                        <option value="none">숨김</option>
-                      </select>
-                    </Field>
-                    <Field label="채움 투명도">
-                      <input
-                        type="range"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        value={style.fillOpacity ?? 0.25}
-                        onChange={(e) =>
-                          setStyle((s) => ({ ...s, fillOpacity: Number(e.target.value) }))
-                        }
-                        className="w-full accent-[#213183]"
-                      />
-                    </Field>
-                  </div>
-                  <div className="mt-2 grid grid-cols-2 gap-y-2">
-                    <Toggle
-                      label="데이터 레이블"
-                      checked={!!style.showDataLabels}
-                      onChange={(v) => setStyle((s) => ({ ...s, showDataLabels: v }))}
-                    />
-                    {(chartType === "line" || chartType === "area" || chartType === "combo") && (
-                      <Toggle
-                        label="부드러운 곡선"
-                        checked={!!style.smooth}
-                        onChange={(v) => setStyle((s) => ({ ...s, smooth: v }))}
-                      />
+                      </RowSelect>
                     )}
                     {(chartType === "bar" || chartType === "area" || chartType === "combo") && (
-                      <Toggle
+                      <RowToggleRow
+                        icon={<Ic.stack />}
                         label="누적"
                         checked={!!style.stacked}
                         onChange={(v) => setStyle((s) => ({ ...s, stacked: v }))}
                       />
                     )}
                     {chartType === "pie" && (
-                      <Toggle
+                      <RowToggleRow
+                        icon={<Ic.stack />}
                         label="도넛"
                         checked={!!style.donut}
                         onChange={(v) => setStyle((s) => ({ ...s, donut: v }))}
                       />
                     )}
-                  </div>
-                </Section>
-
-                {/* AXES */}
-                {isCartesian && (
-                  <Section title="축 설정" defaultOpen={false}>
-                    <AxisEditor
-                      title="X 축"
-                      axis={xAxis}
-                      onChange={setXAxis}
-                      showRange={isScatter}
-                    />
-                    <AxisEditor
-                      title="왼쪽 Y 축"
-                      axis={leftAxis}
-                      onChange={setLeftAxis}
-                      showRange
-                    />
-                    {hasRight && (
-                      <AxisEditor
-                        title="오른쪽 Y 축 (보조)"
-                        axis={rightAxis}
-                        onChange={setRightAxis}
-                        showRange
-                      />
-                    )}
-                  </Section>
-                )}
-              </div>
-            </Card>
-          </div>
-
-          {/* RIGHT — sticky live preview */}
-          <div className="lg:sticky lg:top-6">
-            {xKey && series.length > 0 ? (
-              <Card>
-                <div className="flex items-center justify-between">
-                  <CardTitle>미리보기</CardTitle>
-                  <span className="rounded-full bg-[#f2f9ff] px-2 py-0.5 text-xs font-medium text-[#213183]">
-                    실시간
-                  </span>
-                </div>
-                <div
-                  className="mt-4 rounded-lg border border-[rgba(0,0,0,0.08)] p-4"
-                  style={{ background: style.background === "transparent" ? "#fff" : style.background }}
-                >
-                  {title && (
-                    <h3
-                      className="mb-2 text-sm font-semibold"
-                      style={{ color: style.background === "#1f2937" ? "#f9fafb" : "rgba(0,0,0,0.9)" }}
-                    >
-                      {title}
-                    </h3>
-                  )}
-                  <div className="h-[600px]">
-                    <ChartView type={chartType} data={previewData} config={config} />
-                  </div>
-                </div>
-                {previewData.length === 0 && (
-                  <p className="mt-2 text-xs text-[#a39e98]">
-                    선택한 X 축 / 계열에 표시할 수 있는 값이 없습니다. 다른 속성을 골라보세요.
-                  </p>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className={`${primaryBtn} mt-4 w-full`}
-                >
-                  {saving ? "저장 중..." : "위젯 저장 + 임베드 URL 발급"}
-                </button>
-
-                {savedId && (
-                  <div className="mt-4 rounded-md bg-[#f6f5f4] p-3">
-                    <p className="text-xs text-[#615d59]">
-                      노션에서 <code className="rounded bg-white px-1">/embed</code> 블록에 붙여넣으세요.
-                    </p>
-                    <div className="mt-2 flex gap-2">
-                      <input readOnly value={embedUrl} className={`${inputClass} font-mono text-xs`} />
-                      <button
-                        type="button"
-                        onClick={() => navigator.clipboard.writeText(embedUrl)}
-                        className={primaryBtn}
+                    {isCartesian && (
+                      <RowExpand
+                        icon={<Ic.range />}
+                        label="범위"
+                        value={
+                          leftAxis.min != null || leftAxis.max != null ? "사용자 지정" : "자동"
+                        }
+                        open={openRow === "range"}
+                        onToggle={() => toggleRow("range")}
                       >
-                        복사
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </Card>
-            ) : (
-              <Card>
-                <div className="flex items-center justify-between">
-                  <CardTitle>미리보기</CardTitle>
-                  <span className="rounded-full bg-[#f6f5f4] px-2 py-0.5 text-xs font-medium text-[#a39e98]">
-                    대기 중
-                  </span>
-                </div>
-                <div className="mt-4 flex h-[600px] items-center justify-center rounded-lg border border-dashed border-[rgba(0,0,0,0.12)] text-center">
-                  <p className="px-6 text-sm text-[#a39e98]">
-                    왼쪽에서 X 축과 데이터 계열을 선택하면
-                    <br />
-                    여기에 실시간 미리보기가 나타납니다.
-                  </p>
-                </div>
-              </Card>
-            )}
-          </div>
-          </div>
+                        <div className="space-y-2.5">
+                          {isScatter && (
+                            <AxisEditor title="X 축" axis={xAxis} onChange={setXAxis} showRange />
+                          )}
+                          <AxisEditor
+                            title="왼쪽 Y 축"
+                            axis={leftAxis}
+                            onChange={setLeftAxis}
+                            showRange
+                          />
+                          {hasRight && (
+                            <AxisEditor
+                              title="오른쪽 Y 축 (보조)"
+                              axis={rightAxis}
+                              onChange={setRightAxis}
+                              showRange
+                            />
+                          )}
+                        </div>
+                      </RowExpand>
+                    )}
+                  </PanelSection>
 
-          {error && (
-            <div className="rounded-md border border-[#dd5b00]/30 bg-[#dd5b00]/5 px-4 py-3 text-sm text-[#dd5b00]">
-              {error}
-            </div>
+                  <Divider />
+
+                  {/* Style */}
+                  <PanelSection title="스타일">
+                    <RowExpand
+                      icon={<Ic.color />}
+                      label="색상"
+                      value={
+                        PALETTE_PRESETS.find(
+                          (p) => JSON.stringify(p.colors) === JSON.stringify(style.palette),
+                        )?.name ?? "사용자 지정"
+                      }
+                      open={openRow === "color"}
+                      onToggle={() => toggleRow("color")}
+                    >
+                      <div className="flex flex-wrap gap-2">
+                        {PALETTE_PRESETS.map((p) => (
+                          <button
+                            key={p.name}
+                            type="button"
+                            onClick={() => setStyle((s) => ({ ...s, palette: p.colors }))}
+                            className={
+                              JSON.stringify(style.palette) === JSON.stringify(p.colors)
+                                ? "flex items-center gap-2 rounded-md border border-[#37352f] bg-white px-2.5 py-1.5"
+                                : "flex items-center gap-2 rounded-md border border-[rgba(0,0,0,0.1)] bg-white px-2.5 py-1.5 hover:border-[rgba(0,0,0,0.25)]"
+                            }
+                          >
+                            <span className="flex">
+                              {p.colors.slice(0, 5).map((c) => (
+                                <span
+                                  key={c}
+                                  className="h-3.5 w-3.5 rounded-sm"
+                                  style={{ background: c, marginLeft: -2, border: "1px solid #fff" }}
+                                />
+                              ))}
+                            </span>
+                            <span className="text-xs">{p.name}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </RowExpand>
+
+                    <RowExpand
+                      icon={<Ic.sliders />}
+                      label="추가 스타일"
+                      value=""
+                      open={openRow === "more"}
+                      onToggle={() => toggleRow("more")}
+                    >
+                      <div className="space-y-3">
+                        <Field label="차트 배경">
+                          <div className="flex flex-wrap items-center gap-2">
+                            {BG_PRESETS.map((b) => (
+                              <button
+                                key={b.name}
+                                type="button"
+                                onClick={() => setStyle((s) => ({ ...s, background: b.color }))}
+                                className={
+                                  style.background === b.color
+                                    ? "rounded-md border border-[#37352f] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#37352f]"
+                                    : "rounded-md border border-[rgba(0,0,0,0.1)] bg-white px-2.5 py-1.5 text-xs hover:border-[rgba(0,0,0,0.25)]"
+                                }
+                              >
+                                {b.name}
+                              </button>
+                            ))}
+                            <ColorDot
+                              value={
+                                style.background === "transparent"
+                                  ? "#ffffff"
+                                  : style.background ?? "#ffffff"
+                              }
+                              onChange={(c) => setStyle((s) => ({ ...s, background: c }))}
+                            />
+                          </div>
+                        </Field>
+                        <div className="flex items-center justify-between">
+                          <Toggle
+                            label="격자선"
+                            checked={style.showGrid !== false}
+                            onChange={(v) => setStyle((s) => ({ ...s, showGrid: v }))}
+                          />
+                          <ColorDot
+                            value={style.gridColor ?? "#e5e5e5"}
+                            onChange={(c) => setStyle((s) => ({ ...s, gridColor: c }))}
+                          />
+                        </div>
+                        <Field label="범례 위치">
+                          <select
+                            value={style.legend ?? "bottom"}
+                            onChange={(e) =>
+                              setStyle((s) => ({ ...s, legend: e.target.value as LegendPosition }))
+                            }
+                            className={inputClass}
+                          >
+                            <option value="top">위</option>
+                            <option value="bottom">아래</option>
+                            <option value="left">왼쪽</option>
+                            <option value="right">오른쪽</option>
+                            <option value="none">숨김</option>
+                          </select>
+                        </Field>
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+                          <Toggle
+                            label="데이터 레이블"
+                            checked={!!style.showDataLabels}
+                            onChange={(v) => setStyle((s) => ({ ...s, showDataLabels: v }))}
+                          />
+                          {(chartType === "line" ||
+                            chartType === "area" ||
+                            chartType === "combo") && (
+                            <Toggle
+                              label="부드러운 곡선"
+                              checked={!!style.smooth}
+                              onChange={(v) => setStyle((s) => ({ ...s, smooth: v }))}
+                            />
+                          )}
+                        </div>
+                        {(chartType === "area" || chartType === "radar" || chartType === "combo") && (
+                          <Field label="채움 투명도">
+                            <input
+                              type="range"
+                              min={0}
+                              max={1}
+                              step={0.05}
+                              value={style.fillOpacity ?? 0.25}
+                              onChange={(e) =>
+                                setStyle((s) => ({ ...s, fillOpacity: Number(e.target.value) }))
+                              }
+                              className="w-full accent-[#37352f]"
+                            />
+                          </Field>
+                        )}
+                      </div>
+                    </RowExpand>
+
+                    <RowStatic
+                      icon={<Ic.source />}
+                      label="데이터 원본"
+                      value={inspect.title ?? `${properties.length}개 속성`}
+                    />
+                  </PanelSection>
+                </div>
+              </aside>
+            </>
           )}
         </div>
       )}
@@ -1250,45 +1326,304 @@ function Toggle({
   );
 }
 
-function Section({
-  title,
-  children,
-  defaultOpen = true,
-}: {
-  title: string;
-  children: React.ReactNode;
-  defaultOpen?: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
+/* ---------- Notion-style settings panel primitives ---------- */
+
+function PanelSection({ title, children }: { title?: string; children: React.ReactNode }) {
   return (
-    <div className="border-b border-[rgba(0,0,0,0.06)] pb-3 last:border-0 last:pb-0">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="group flex w-full items-center justify-between py-1 text-left"
-      >
-        <span className="text-xs font-bold uppercase tracking-wide text-[#a39e98] transition-colors group-hover:text-[#615d59]">
+    <div className="px-2 py-1.5">
+      {title && (
+        <div className="px-2 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#9b9a97]">
           {title}
-        </span>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden
-          className={`text-[#a39e98] transition-transform ${open ? "" : "-rotate-90"}`}
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </button>
-      {open && <div className="mt-2 space-y-3">{children}</div>}
+        </div>
+      )}
+      {children}
     </div>
   );
 }
+
+function Divider() {
+  return <div className="mx-3 border-t border-[rgba(0,0,0,0.06)]" />;
+}
+
+const rowBase =
+  "flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors";
+
+function RowStatic({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className={rowBase}>
+      <span className="shrink-0 text-[#9b9a97]">{icon}</span>
+      <span className="text-sm text-[rgba(0,0,0,0.84)]">{label}</span>
+      <span className="ml-auto max-w-[150px] truncate text-sm text-[#9b9a97]">{value}</span>
+    </div>
+  );
+}
+
+function RowSelect({
+  icon,
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`${rowBase} hover:bg-[rgba(55,53,47,0.05)]`}>
+      <span className="shrink-0 text-[#9b9a97]">{icon}</span>
+      <span className="text-sm text-[rgba(0,0,0,0.84)]">{label}</span>
+      <div className="relative ml-auto flex items-center">
+        <select
+          value={value}
+          onChange={onChange}
+          className="max-w-[160px] cursor-pointer appearance-none truncate bg-transparent pr-4 text-right text-sm text-[#787774] focus:outline-none"
+        >
+          {children}
+        </select>
+        <span className="pointer-events-none absolute right-0 text-[#9b9a97]">
+          <ChevronDownSmall />
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function RowToggleRow({
+  icon,
+  label,
+  checked,
+  onChange,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div className={`${rowBase} hover:bg-[rgba(55,53,47,0.05)]`}>
+      <span className="shrink-0 text-[#9b9a97]">{icon}</span>
+      <span className="text-sm text-[rgba(0,0,0,0.84)]">{label}</span>
+      <span className="ml-auto">
+        <Switch checked={checked} onChange={onChange} />
+      </span>
+    </div>
+  );
+}
+
+function RowExpand({
+  icon,
+  label,
+  value,
+  open,
+  onToggle,
+  children,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={onToggle}
+        className={`${rowBase} hover:bg-[rgba(55,53,47,0.05)]`}
+      >
+        <span className="shrink-0 text-[#9b9a97]">{icon}</span>
+        <span className="text-sm text-[rgba(0,0,0,0.84)]">{label}</span>
+        <span className="ml-auto flex items-center gap-1 text-sm text-[#787774]">
+          <span className="max-w-[130px] truncate">{value}</span>
+          <span
+            className={`text-[#9b9a97] transition-transform ${open ? "rotate-90" : ""}`}
+          >
+            <ChevronRightSmall />
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div className="mb-2 ml-1 mt-1 rounded-md bg-[#f7f7f5] p-2.5">{children}</div>
+      )}
+    </div>
+  );
+}
+
+function Switch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative h-[18px] w-[30px] rounded-full transition-colors ${
+        checked ? "bg-[#2eaadc]" : "bg-[#d4d2cf]"
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 h-[14px] w-[14px] rounded-full bg-white shadow transition-all ${
+          checked ? "left-[14px]" : "left-0.5"
+        }`}
+      />
+    </button>
+  );
+}
+
+function ChevronDownSmall() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+function ChevronRightSmall() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+/* ---------- 16px line icons for the settings panel ---------- */
+
+function SIcon({ children }: { children: React.ReactNode }) {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      {children}
+    </svg>
+  );
+}
+
+const Ic = {
+  bar: () => (
+    <SIcon>
+      <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+      <rect x="7" y="10" width="3" height="7" rx="0.5" />
+      <rect x="13" y="6" width="3" height="11" rx="0.5" />
+    </SIcon>
+  ),
+  settings: () => (
+    <SIcon>
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
+    </SIcon>
+  ),
+  x: () => (
+    <SIcon>
+      <path d="M18 6 6 18" />
+      <path d="m6 6 12 12" />
+    </SIcon>
+  ),
+  layout: () => (
+    <SIcon>
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M3 9h18" />
+      <path d="M9 21V9" />
+    </SIcon>
+  ),
+  xaxis: () => (
+    <SIcon>
+      <path d="M4 4v11a4 4 0 0 0 4 4h11" />
+      <path d="m15 15 4 4-4 4" />
+    </SIcon>
+  ),
+  yaxis: () => (
+    <SIcon>
+      <path d="M20 20H9a4 4 0 0 1-4-4V5" />
+      <path d="m9 9-4-4-4 4" />
+    </SIcon>
+  ),
+  sort: () => (
+    <SIcon>
+      <path d="m3 8 4-4 4 4" />
+      <path d="M7 4v16" />
+      <path d="m21 16-4 4-4-4" />
+      <path d="M17 20V4" />
+    </SIcon>
+  ),
+  eyeOff: () => (
+    <SIcon>
+      <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+      <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+      <path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+      <path d="m2 2 20 20" />
+    </SIcon>
+  ),
+  count: () => (
+    <SIcon>
+      <path d="M4 9h16" />
+      <path d="M4 15h16" />
+      <path d="M10 3 8 21" />
+      <path d="M16 3l-2 18" />
+    </SIcon>
+  ),
+  group: () => (
+    <SIcon>
+      <path d="M8 6h13" />
+      <path d="M8 12h13" />
+      <path d="M8 18h13" />
+      <path d="M3 6h.01" />
+      <path d="M3 12h.01" />
+      <path d="M3 18h.01" />
+    </SIcon>
+  ),
+  stack: () => (
+    <SIcon>
+      <path d="m12 2 8 4-8 4-8-4 8-4Z" />
+      <path d="m4 10 8 4 8-4" />
+      <path d="m4 14 8 4 8-4" />
+    </SIcon>
+  ),
+  range: () => (
+    <SIcon>
+      <path d="M12 3v18" />
+      <path d="m8 7 4-4 4 4" />
+      <path d="m8 17 4 4 4-4" />
+    </SIcon>
+  ),
+  color: () => (
+    <SIcon>
+      <circle cx="13.5" cy="6.5" r=".5" fill="currentColor" />
+      <circle cx="17.5" cy="10.5" r=".5" fill="currentColor" />
+      <circle cx="8.5" cy="7.5" r=".5" fill="currentColor" />
+      <circle cx="6.5" cy="12.5" r=".5" fill="currentColor" />
+      <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.555C21.965 6.012 17.461 2 12 2z" />
+    </SIcon>
+  ),
+  sliders: () => (
+    <SIcon>
+      <path d="M4 21v-7" />
+      <path d="M4 10V3" />
+      <path d="M12 21v-9" />
+      <path d="M12 8V3" />
+      <path d="M20 21v-5" />
+      <path d="M20 12V3" />
+      <path d="M2 14h4" />
+      <path d="M10 8h4" />
+      <path d="M18 16h4" />
+    </SIcon>
+  ),
+  source: () => (
+    <SIcon>
+      <ellipse cx="12" cy="5" rx="9" ry="3" />
+      <path d="M3 5v14a9 3 0 0 0 18 0V5" />
+      <path d="M3 12a9 3 0 0 0 18 0" />
+    </SIcon>
+  ),
+};
 
 const inputClass =
   "w-full rounded-md border border-[rgba(0,0,0,0.1)] bg-white px-2.5 py-1.5 text-sm text-[rgba(0,0,0,0.95)] placeholder:text-[#a39e98] focus:border-[#213183] focus:outline-none focus:ring-2 focus:ring-[#213183]/10 disabled:bg-[#f6f5f4] disabled:text-[#a39e98]";

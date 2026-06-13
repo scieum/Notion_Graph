@@ -80,6 +80,8 @@ export type ChartStyle = {
   donut?: boolean;
   barRadius?: number;
   fillOpacity?: number;
+  /** drop categories whose every series value is 0 / empty */
+  omitZero?: boolean;
 };
 
 export type WidgetConfig = {

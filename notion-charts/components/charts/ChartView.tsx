@@ -36,17 +36,18 @@ import type {
 import { TREND_PREFIX } from "@/lib/types";
 import { resolveSeries } from "@/lib/chart-data";
 
+// Notion-style soft palette — cycled per category for single-series charts.
 export const DEFAULT_PALETTE = [
-  "#2563eb",
-  "#16a34a",
-  "#ea580c",
-  "#9333ea",
-  "#dc2626",
-  "#0891b2",
-  "#ca8a04",
-  "#db2777",
-  "#4f46e5",
-  "#65a30d",
+  "#4a90d9", // blue
+  "#e9b949", // gold
+  "#67b87a", // green
+  "#b285d6", // purple
+  "#e8965c", // orange
+  "#e87ea6", // pink
+  "#56bdbd", // teal
+  "#e07a6e", // red
+  "#7986cb", // indigo
+  "#9ccc65", // light green
 ];
 
 const TOOLTIP_STYLE = {
@@ -100,18 +101,23 @@ export function ChartView({
   const style = config.style ?? {};
   const palette = style.palette && style.palette.length > 0 ? style.palette : DEFAULT_PALETTE;
   const background = style.background ?? "transparent";
-  const gridColor = style.gridColor ?? "rgba(0,0,0,0.07)";
+  const gridColor = style.gridColor ?? "rgba(55,53,47,0.09)";
   const showGrid = style.showGrid !== false;
-  const legendPos = style.legend ?? "bottom";
   const series = resolveSeries(config);
+  // Notion hides the legend for a single series — it's redundant with the title.
+  const legendPos: LegendPosition =
+    (style.legend ?? "bottom") !== "none" && series.length <= 1 && type !== "pie"
+      ? "none"
+      : style.legend ?? "bottom";
   const fillOpacity = style.fillOpacity ?? 0.25;
   const uid = useId().replace(/:/g, "");
 
   const axisTickStyle = (axis?: AxisConfig) => ({
     fontSize: 12,
-    fill: axis?.color ?? "#615d59",
+    fill: axis?.color ?? "#9b9a97",
     fontFamily: "inherit",
   });
+  const singleSeries = series.length === 1;
 
   if (data.length === 0) {
     return (
@@ -203,7 +209,7 @@ export function ChartView({
   return (
     <Wrapper background={background}>
       <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 16, right: hasRight ? 16 : 20, bottom: 8, left: 4 }}>
+        <ComposedChart data={data} margin={{ top: 28, right: hasRight ? 16 : 20, bottom: 8, left: 4 }}>
           <defs>
             {series.map((s, i) => {
               const c = colorFor(s, i, palette);
@@ -216,7 +222,7 @@ export function ChartView({
             })}
           </defs>
           {showGrid && (
-            <CartesianGrid stroke={gridColor} strokeDasharray="4 4" vertical={isScatter} />
+            <CartesianGrid stroke={gridColor} strokeDasharray="3 3" vertical={isScatter} horizontal />
           )}
           <XAxis
             dataKey="x"
@@ -225,7 +231,8 @@ export function ChartView({
             padding={{ left: 24, right: 24 }}
             tick={axisTickStyle(config.xAxis)}
             tickLine={false}
-            axisLine={{ stroke: config.xAxis?.color ?? "rgba(0,0,0,0.1)" }}
+            tickMargin={10}
+            axisLine={false}
             hide={config.xAxis?.hide}
           >
             {config.xAxis?.title && (
@@ -273,7 +280,9 @@ export function ChartView({
             <Legend {...legendProps(legendPos)} wrapperStyle={{ fontSize: 12, color: "#615d59" }} />
           )}
 
-          {series.map((s, i) => renderSeries(s, i, type, palette, style, isScatter, fillOpacity, uid))}
+          {series.map((s, i) =>
+            renderSeries(s, i, type, palette, style, isScatter, fillOpacity, uid, data, singleSeries),
+          )}
           {series.map((s, i) => renderTrendline(s, i, palette))}
         </ComposedChart>
       </ResponsiveContainer>
@@ -290,13 +299,21 @@ function renderSeries(
   isScatter: boolean,
   fillOpacity: number,
   uid: string,
+  data: ChartDatum[],
+  singleSeries: boolean,
 ) {
   const color = colorFor(s, i, palette);
   const yAxisId = s.axis === "right" ? "right" : "left";
   const name = s.label ?? s.key;
   const curve = style.smooth ? "monotone" : "linear";
   const labels = style.showDataLabels ? (
-    <LabelList dataKey={s.key} position="top" style={{ fontSize: 11, fill: "#615d59" }} formatter={(v: unknown) => fmt(v)} />
+    <LabelList
+      dataKey={s.key}
+      position="top"
+      offset={8}
+      style={{ fontSize: 12, fill: "#787774", fontWeight: 500 }}
+      formatter={(v: unknown) => fmt(v)}
+    />
   ) : null;
 
   if (isScatter) {
@@ -352,7 +369,8 @@ function renderSeries(
     );
   }
 
-  // bar
+  // bar — Notion cycles a different palette colour per category for a single series.
+  const perCategory = singleSeries && !style.stacked && !s.color;
   return (
     <Bar
       key={s.key}
@@ -360,11 +378,13 @@ function renderSeries(
       name={name}
       yAxisId={yAxisId}
       fill={color}
-      radius={[style.barRadius ?? 6, style.barRadius ?? 6, 0, 0]}
-      maxBarSize={64}
+      radius={[style.barRadius ?? 4, style.barRadius ?? 4, 0, 0]}
+      maxBarSize={32}
       stackId={style.stacked ? "stack" : undefined}
       isAnimationActive={false}
     >
+      {perCategory &&
+        data.map((_, di) => <Cell key={di} fill={palette[di % palette.length]} />)}
       {labels}
     </Bar>
   );
