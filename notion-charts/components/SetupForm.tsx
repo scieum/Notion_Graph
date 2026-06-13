@@ -211,6 +211,10 @@ export function SetupForm() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [showData, setShowData] = useState(true);
   const [copied, setCopied] = useState(false);
+  // table view state — shared by the data table AND the chart
+  const [tableSorts, setTableSorts] = useState<SortRule[]>([]);
+  const [tableFilters, setTableFilters] = useState<FilterRule[]>([]);
+  const [filterJoin, setFilterJoin] = useState<"and" | "or">("and");
   const [openRow, setOpenRow] = useState<string | null>(null);
   const toggleRow = (id: string) => setOpenRow((cur) => (cur === id ? null : id));
   const [xAxis, setXAxis] = useState<AxisConfig>({});
@@ -247,18 +251,27 @@ export function SetupForm() {
     [title, xKey, series, aggregation, sortBy, sortDir, limit, style, xAxis, leftAxis, rightAxis],
   );
 
+  // Rows after the table's filters + sorts — drives both the table and the chart.
+  const processedRows = useMemo(
+    () => (inspect ? processRows(inspect.rows, tableFilters, filterJoin, tableSorts) : []),
+    [inspect, tableFilters, filterJoin, tableSorts],
+  );
+
   const previewData = useMemo(() => {
     if (!inspect || !xKey) return [];
     try {
-      return buildChartData(inspect.rows, chartType, config);
+      return buildChartData(processedRows, chartType, config);
     } catch {
       return [];
     }
-  }, [inspect, xKey, chartType, config]);
+  }, [inspect, xKey, chartType, config, processedRows]);
 
   const applyInspectResult = useCallback((json: InspectResult) => {
     setInspect(json);
     setSavedId(null);
+    setTableSorts([]);
+    setTableFilters([]);
+    setFilterJoin("and");
     if (json.title) setTitle(json.title);
     const props = json.properties ?? [];
     if (props[0]) setXKey(props[0].name);
@@ -678,8 +691,15 @@ export function SetupForm() {
             {showData && (
               <DataTable
                 properties={properties}
-                rows={inspect.rows}
+                rows={processedRows}
+                totalCount={inspect.rows.length}
                 highlight={new Set([xKey, ...series.map((s) => s.key)])}
+                sorts={tableSorts}
+                setSorts={setTableSorts}
+                filters={tableFilters}
+                setFilters={setTableFilters}
+                join={filterJoin}
+                setJoin={setFilterJoin}
               />
             )}
           </div>
@@ -797,18 +817,18 @@ export function SetupForm() {
 
                   {/* data */}
                   <PanelSection title="데이터">
-                    <RowSelect
+                    <PropertyPicker
                       icon={<Ic.target />}
                       label="표시 대상"
                       value={xKey}
-                      onChange={(e) => setXKey(e.target.value)}
-                    >
-                      {(isScatter ? numericProps : properties).map((p) => (
-                        <option key={p.name} value={p.name}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </RowSelect>
+                      options={isScatter ? numericProps : properties}
+                      open={openRow === "xprop"}
+                      onToggle={() => toggleRow("xprop")}
+                      onSelect={(name) => {
+                        setXKey(name);
+                        setOpenRow(null);
+                      }}
+                    />
 
                     <RowExpand
                       icon={<Ic.yaxis />}
@@ -1385,43 +1405,64 @@ function cmpVal(a: string | number | null, b: string | number | null): number {
   return String(a).localeCompare(String(b));
 }
 
+/** Apply the table's filters (AND/OR) + multi-sort to raw rows. Used by the table AND the chart. */
+function processRows(
+  rows: Record<string, unknown>[],
+  filters: FilterRule[],
+  join: "and" | "or",
+  sorts: SortRule[],
+): Record<string, unknown>[] {
+  let arr = rows.map((row, i) => ({ row, i }));
+  const active = filters.filter((f) => f.key);
+  if (active.length) {
+    arr = arr.filter(({ row }) => {
+      const results = active.map((f) => matchFilter(extractValue(row[f.key]), f.op, f.value));
+      return join === "or" ? results.some(Boolean) : results.every(Boolean);
+    });
+  }
+  if (sorts.length) {
+    arr = [...arr].sort((a, b) => {
+      for (const s of sorts) {
+        const c = cmpVal(extractValue(a.row[s.key]), extractValue(b.row[s.key]));
+        if (c !== 0) return s.dir === "desc" ? -c : c;
+      }
+      return a.i - b.i;
+    });
+  }
+  return arr.map((x) => x.row);
+}
+
 const tableSelect =
   "max-w-[120px] cursor-pointer truncate rounded border border-[rgba(0,0,0,0.12)] bg-white px-1.5 py-1 text-xs text-[rgba(0,0,0,0.8)] focus:border-[#2383e2] focus:outline-none";
 
 function DataTable({
   properties,
   rows,
+  totalCount,
   highlight,
+  sorts,
+  setSorts,
+  filters,
+  setFilters,
+  join,
+  setJoin,
 }: {
   properties: NotionPropertyMeta[];
   rows: Record<string, unknown>[];
+  totalCount: number;
   highlight: Set<string>;
+  sorts: SortRule[];
+  setSorts: React.Dispatch<React.SetStateAction<SortRule[]>>;
+  filters: FilterRule[];
+  setFilters: React.Dispatch<React.SetStateAction<FilterRule[]>>;
+  join: "and" | "or";
+  setJoin: (j: "and" | "or") => void;
 }) {
-  const [sorts, setSorts] = useState<SortRule[]>([]);
-  const [filters, setFilters] = useState<FilterRule[]>([]);
   const [menu, setMenu] = useState<null | "sort" | "filter">(null);
 
   const propType = (k: string) => properties.find((p) => p.name === k)?.type ?? "rich_text";
 
-  const view = useMemo(() => {
-    let r = rows.map((row, i) => ({ row, i }));
-    for (const f of filters) {
-      if (!f.key) continue;
-      r = r.filter(({ row }) => matchFilter(extractValue(row[f.key]), f.op, f.value));
-    }
-    if (sorts.length) {
-      r = [...r].sort((a, b) => {
-        for (const s of sorts) {
-          const c = cmpVal(extractValue(a.row[s.key]), extractValue(b.row[s.key]));
-          if (c !== 0) return s.dir === "desc" ? -c : c;
-        }
-        return a.i - b.i;
-      });
-    }
-    return r;
-  }, [rows, filters, sorts]);
-
-  if (properties.length === 0 || rows.length === 0) {
+  if (properties.length === 0 || totalCount === 0) {
     return (
       <div className="border-t border-[rgba(0,0,0,0.06)] px-4 py-6 text-center text-sm text-[#a39e98]">
         표시할 행이 없습니다.
@@ -1480,7 +1521,7 @@ function DataTable({
           필터{filters.length > 0 ? ` ${filters.length}` : ""}
         </button>
         <span className="ml-auto text-xs text-[#9b9a97]">
-          {view.length === rows.length ? `${rows.length}개 행` : `${view.length} / ${rows.length}개 행`}
+          {rows.length === totalCount ? `${totalCount}개 행` : `${rows.length} / ${totalCount}개 행`}
         </span>
 
         {menu && <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />}
@@ -1527,9 +1568,37 @@ function DataTable({
         )}
 
         {menu === "filter" && (
-          <div className="absolute left-2 top-9 z-30 w-[340px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white p-2 shadow-[rgba(15,15,15,0.16)_0px_8px_28px]">
-            {filters.length === 0 && (
-              <p className="px-1 py-1.5 text-xs text-[#9b9a97]">필터가 없습니다. 모든 조건은 AND로 결합됩니다.</p>
+          <div className="absolute left-2 top-9 z-30 w-[348px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white p-2 shadow-[rgba(15,15,15,0.16)_0px_8px_28px]">
+            {filters.length === 0 ? (
+              <p className="px-1 py-1.5 text-xs text-[#9b9a97]">필터가 없습니다. 아래에서 조건을 추가하세요.</p>
+            ) : (
+              <div className="mb-1.5 flex items-center gap-1 px-1">
+                <span className="text-xs text-[#9b9a97]">조건 결합</span>
+                <div className="ml-auto flex rounded-md border border-[rgba(0,0,0,0.12)] p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setJoin("and")}
+                    className={
+                      join === "and"
+                        ? "rounded bg-[#2383e2] px-2 py-0.5 text-[11px] font-medium text-white"
+                        : "rounded px-2 py-0.5 text-[11px] font-medium text-[#787774] hover:bg-[rgba(55,53,47,0.06)]"
+                    }
+                  >
+                    모두 (AND)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setJoin("or")}
+                    className={
+                      join === "or"
+                        ? "rounded bg-[#2383e2] px-2 py-0.5 text-[11px] font-medium text-white"
+                        : "rounded px-2 py-0.5 text-[11px] font-medium text-[#787774] hover:bg-[rgba(55,53,47,0.06)]"
+                    }
+                  >
+                    하나라도 (OR)
+                  </button>
+                </div>
+              </div>
             )}
             <div className="space-y-1.5">
               {filters.map((f, idx) => {
@@ -1537,7 +1606,9 @@ function DataTable({
                 const needsValue = f.op !== "empty" && f.op !== "nempty";
                 return (
                   <div key={idx} className="flex flex-wrap items-center gap-1">
-                    <span className="text-xs text-[#9b9a97]">{idx === 0 ? "조건" : "그리고"}</span>
+                    <span className="w-9 shrink-0 text-xs text-[#9b9a97]">
+                      {idx === 0 ? "조건" : join === "or" ? "또는" : "그리고"}
+                    </span>
                     <select
                       value={f.key}
                       onChange={(e) => {
@@ -1622,7 +1693,7 @@ function DataTable({
             </tr>
           </thead>
           <tbody>
-            {view.map(({ row }, di) => (
+            {rows.map((row, di) => (
               <tr key={di} className="hover:bg-[rgba(55,53,47,0.025)]">
                 <td className="sticky left-0 w-10 border-b border-r border-[rgba(0,0,0,0.05)] bg-white px-2 py-1.5 text-right text-[#c2c0bc]">
                   {di + 1}
@@ -1645,7 +1716,7 @@ function DataTable({
                 })}
               </tr>
             ))}
-            {view.length === 0 && (
+            {rows.length === 0 && (
               <tr>
                 <td colSpan={properties.length + 1} className="px-4 py-6 text-center text-sm text-[#a39e98]">
                   필터 조건에 맞는 행이 없습니다.
@@ -1892,6 +1963,106 @@ function RowExpand({
       </button>
       {open && (
         <div className="mb-2 ml-1 mt-1 rounded-md bg-[#f7f7f5] p-2.5">{children}</div>
+      )}
+    </div>
+  );
+}
+
+/** Notion-style property glyph by type. */
+function propIcon(type: string): string {
+  switch (type) {
+    case "title":
+    case "rich_text":
+      return "Aa";
+    case "number":
+      return "#";
+    case "formula":
+    case "rollup":
+      return "Σ";
+    case "date":
+    case "created_time":
+    case "last_edited_time":
+      return "◷";
+    case "checkbox":
+      return "☑";
+    case "select":
+    case "status":
+      return "⊙";
+    case "multi_select":
+      return "⊞";
+    case "people":
+      return "☺";
+    case "url":
+    case "email":
+    case "phone_number":
+      return "∞";
+    default:
+      return "•";
+  }
+}
+
+/** A settings row whose value opens an inline searchable property list (Notion's "표시 대상" dropdown). */
+function PropertyPicker({
+  icon,
+  label,
+  value,
+  options,
+  open,
+  onToggle,
+  onSelect,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  options: NotionPropertyMeta[];
+  open: boolean;
+  onToggle: () => void;
+  onSelect: (name: string) => void;
+}) {
+  const [q, setQ] = useState("");
+  const filtered = options.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
+  return (
+    <div>
+      <button type="button" onClick={onToggle} className={`${rowBase} hover:bg-[rgba(55,53,47,0.05)]`}>
+        <span className="shrink-0 text-[#9b9a97]">{icon}</span>
+        <span className="text-sm text-[rgba(0,0,0,0.84)]">{label}</span>
+        <span className="ml-auto flex items-center gap-1 text-sm text-[#787774]">
+          <span className="max-w-[140px] truncate">{value || "선택"}</span>
+          <span className={`text-[#9b9a97] transition-transform ${open ? "rotate-90" : ""}`}>
+            <ChevronRightSmall />
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div className="mb-2 ml-1 mt-1 rounded-md border border-[rgba(0,0,0,0.09)] bg-white p-1 shadow-[rgba(15,15,15,0.08)_0px_4px_16px]">
+          <input
+            autoFocus
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="속성 검색..."
+            className="mb-1 w-full rounded border border-[rgba(0,0,0,0.1)] bg-[#f7f7f5] px-2 py-1.5 text-sm text-[rgba(0,0,0,0.85)] placeholder:text-[#9b9a97] focus:border-[#2383e2] focus:bg-white focus:outline-none"
+          />
+          <div className="max-h-[220px] overflow-y-auto">
+            {filtered.map((p) => (
+              <button
+                key={p.name}
+                type="button"
+                onClick={() => {
+                  onSelect(p.name);
+                  setQ("");
+                }}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-[rgba(55,53,47,0.06)]"
+              >
+                <span className="w-4 shrink-0 text-center text-xs text-[#9b9a97]">{propIcon(p.type)}</span>
+                <span className="flex-1 truncate text-[rgba(0,0,0,0.82)]">{p.name}</span>
+                {p.name === value && <span className="text-[#2383e2]">✓</span>}
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="px-2 py-2 text-xs text-[#9b9a97]">검색 결과가 없습니다.</p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
