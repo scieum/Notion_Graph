@@ -549,7 +549,7 @@ export function SetupForm() {
 
       {/* ===================== BUILDER — opens after a DB is loaded ===================== */}
       {inspect && (
-        <div className="mx-auto max-w-5xl py-6">
+        <div className="relative mx-auto max-w-5xl py-6">
           {/* top bar */}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <button
@@ -575,7 +575,7 @@ export function SetupForm() {
           {/* hero chart card */}
           <div className="overflow-hidden rounded-xl border border-[rgba(0,0,0,0.09)] bg-white shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
             {/* notion-style toolbar */}
-            <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
+            <div className="flex items-center justify-between gap-2 px-3 py-2">
               <div className="flex min-w-0 items-center gap-1.5 rounded-md bg-[rgba(55,53,47,0.06)] px-2.5 py-1">
                 <span className="text-[#9b9a97]">
                   <Ic.bar />
@@ -586,12 +586,16 @@ export function SetupForm() {
               </div>
               <button
                 type="button"
-                onClick={() => setPanelOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[rgba(0,0,0,0.1)] bg-white px-2.5 py-1.5 text-[13px] font-medium text-[#787774] transition-colors hover:bg-[rgba(55,53,47,0.04)]"
-                aria-label="설정 열기"
+                onClick={() => setPanelOpen((v) => !v)}
+                className={
+                  panelOpen
+                    ? "rounded-md bg-[rgba(35,131,226,0.12)] p-1.5 text-[#2383e2] transition-colors"
+                    : "rounded-md p-1.5 text-[#9b9a97] transition-colors hover:bg-[rgba(55,53,47,0.06)] hover:text-[#37352f]"
+                }
+                aria-label="설정 보기"
+                title="설정 보기"
               >
-                <Ic.settings />
-                설정
+                <Ic.sliders />
               </button>
             </div>
 
@@ -651,31 +655,29 @@ export function SetupForm() {
             </div>
           )}
 
-          {/* ===== Notion-style View settings drawer ===== */}
+          {/* ===== Notion-style "설정 보기" floating panel (beside the chart) ===== */}
           {panelOpen && (
             <>
-              <div
-                className="fixed inset-0 z-40 bg-black/10"
-                onClick={() => setPanelOpen(false)}
-              />
-              <aside className="fixed right-0 top-0 z-50 flex h-full w-[340px] flex-col bg-white shadow-[rgba(15,15,15,0.1)_-6px_0px_28px]">
+              {/* invisible click-catcher to close on outside click */}
+              <div className="fixed inset-0 z-20" onClick={() => setPanelOpen(false)} />
+              <div className="absolute right-0 top-[92px] z-30 flex max-h-[78vh] w-[330px] flex-col overflow-hidden rounded-xl border border-[rgba(0,0,0,0.1)] bg-white shadow-[rgba(15,15,15,0.16)_0px_10px_36px]">
                 {/* header */}
-                <div className="flex items-center justify-between px-4 pb-1 pt-4">
+                <div className="flex items-center justify-between px-4 pb-1.5 pt-3.5">
                   <span className="text-[15px] font-semibold text-[rgba(0,0,0,0.85)]">
-                    차트 설정
+                    설정 보기
                   </span>
                   <button
                     type="button"
                     onClick={() => setPanelOpen(false)}
                     aria-label="닫기"
-                    className="rounded p-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)]"
+                    className="rounded-full p-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)]"
                   >
                     <Ic.x />
                   </button>
                 </div>
 
                 {/* title row */}
-                <div className="px-3 pb-2 pt-1">
+                <div className="px-3 pb-1 pt-1">
                   <div className="flex items-center gap-2 rounded-md border border-[rgba(0,0,0,0.09)] bg-[#f7f7f5] px-2.5 py-2">
                     <span className="text-[#9b9a97]">
                       <Ic.bar />
@@ -689,11 +691,14 @@ export function SetupForm() {
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-y-auto pb-8">
+                <div className="flex-1 overflow-y-auto pb-4">
                   {/* layout + chart type */}
                   <PanelSection>
                     <RowStatic icon={<Ic.layout />} label="레이아웃" value="차트" />
-                    <div className="px-2 pb-1 pt-1.5">
+                    <div className="px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#9b9a97]">
+                      <span className="px-0.5">차트 유형</span>
+                    </div>
+                    <div className="px-2 pb-1">
                       <div className="flex flex-wrap gap-1 rounded-lg border border-[rgba(0,0,0,0.08)] bg-[#f7f7f5] p-1">
                         {CHART_TYPES.map((t) => (
                           <button
@@ -703,7 +708,7 @@ export function SetupForm() {
                             title={t.label}
                             className={
                               chartType === t.value
-                                ? "flex h-9 flex-1 items-center justify-center rounded-md bg-white text-[#37352f] shadow-[rgba(15,15,15,0.1)_0px_1px_2px] [&_svg]:h-[18px] [&_svg]:w-[18px]"
+                                ? "flex h-9 flex-1 items-center justify-center rounded-md bg-white text-[#2383e2] shadow-[rgba(15,15,15,0.1)_0px_1px_2px] [&_svg]:h-[18px] [&_svg]:w-[18px]"
                                 : "flex h-9 flex-1 items-center justify-center rounded-md text-[#9b9a97] transition-colors hover:text-[#37352f] [&_svg]:h-[18px] [&_svg]:w-[18px]"
                             }
                           >
@@ -716,11 +721,11 @@ export function SetupForm() {
 
                   <Divider />
 
-                  {/* X axis */}
-                  <PanelSection title="X축">
+                  {/* data */}
+                  <PanelSection title="데이터">
                     <RowSelect
-                      icon={<Ic.xaxis />}
-                      label="표시 항목"
+                      icon={<Ic.target />}
+                      label="표시 대상"
                       value={xKey}
                       onChange={(e) => setXKey(e.target.value)}
                     >
@@ -730,64 +735,10 @@ export function SetupForm() {
                         </option>
                       ))}
                     </RowSelect>
-                    {!isScatter && (
-                      <RowSelect
-                        icon={<Ic.sort />}
-                        label="정렬"
-                        value={sortBy === "none" ? "none" : `${sortBy}-${sortDir}`}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          if (v === "none") {
-                            setSortBy("none");
-                          } else {
-                            const [b, d] = v.split("-");
-                            setSortBy(b as "x" | "y");
-                            setSortDir(d as "asc" | "desc");
-                          }
-                        }}
-                      >
-                        <option value="none">정렬 안 함</option>
-                        <option value="x-asc">X축 오름차순</option>
-                        <option value="x-desc">X축 내림차순</option>
-                        <option value="y-asc">값 오름차순</option>
-                        <option value="y-desc">값 내림차순</option>
-                      </RowSelect>
-                    )}
-                    {!isScatter && (
-                      <RowToggleRow
-                        icon={<Ic.eyeOff />}
-                        label="0 값 숨기기"
-                        checked={!!style.omitZero}
-                        onChange={(v) => setStyle((s) => ({ ...s, omitZero: v }))}
-                      />
-                    )}
-                    {!isScatter && (
-                      <RowExpand
-                        icon={<Ic.count />}
-                        label="최대 개수"
-                        value={limit > 0 ? `${limit}개` : "전체"}
-                        open={openRow === "limit"}
-                        onToggle={() => toggleRow("limit")}
-                      >
-                        <input
-                          type="number"
-                          min={0}
-                          value={limit}
-                          onChange={(e) => setLimit(Number(e.target.value))}
-                          className={inputClass}
-                          placeholder="0 = 전체"
-                        />
-                      </RowExpand>
-                    )}
-                  </PanelSection>
 
-                  <Divider />
-
-                  {/* Y axis */}
-                  <PanelSection title="Y축">
                     <RowExpand
                       icon={<Ic.yaxis />}
-                      label="데이터 계열"
+                      label={chartType === "pie" ? "분할 기준" : "데이터 계열"}
                       value={
                         series.length === 1
                           ? series[0].label ?? series[0].key
@@ -826,6 +777,7 @@ export function SetupForm() {
                         )}
                       </div>
                     </RowExpand>
+
                     {!isScatter && (
                       <RowSelect
                         icon={<Ic.group />}
@@ -842,6 +794,40 @@ export function SetupForm() {
                         <option value="none">집계 안 함</option>
                       </RowSelect>
                     )}
+
+                    {!isScatter && (
+                      <RowSelect
+                        icon={<Ic.sort />}
+                        label="정렬 기준"
+                        value={sortBy === "none" ? "none" : `${sortBy}-${sortDir}`}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          if (v === "none") {
+                            setSortBy("none");
+                          } else {
+                            const [b, d] = v.split("-");
+                            setSortBy(b as "x" | "y");
+                            setSortDir(d as "asc" | "desc");
+                          }
+                        }}
+                      >
+                        <option value="none">정렬 안 함</option>
+                        <option value="x-asc">이름 낮음 → 높음</option>
+                        <option value="x-desc">이름 높음 → 낮음</option>
+                        <option value="y-asc">합계 낮음 → 높음</option>
+                        <option value="y-desc">합계 높음 → 낮음</option>
+                      </RowSelect>
+                    )}
+
+                    {!isScatter && (
+                      <RowToggleRow
+                        icon={<Ic.eyeOff />}
+                        label="0 값 숨기기"
+                        checked={!!style.omitZero}
+                        onChange={(v) => setStyle((s) => ({ ...s, omitZero: v }))}
+                      />
+                    )}
+
                     {(chartType === "bar" || chartType === "area" || chartType === "combo") && (
                       <RowToggleRow
                         icon={<Ic.stack />}
@@ -858,6 +844,7 @@ export function SetupForm() {
                         onChange={(v) => setStyle((s) => ({ ...s, donut: v }))}
                       />
                     )}
+
                     {isCartesian && (
                       <RowExpand
                         icon={<Ic.range />}
@@ -889,11 +876,30 @@ export function SetupForm() {
                         </div>
                       </RowExpand>
                     )}
+
+                    {!isScatter && (
+                      <RowExpand
+                        icon={<Ic.count />}
+                        label="최대 개수"
+                        value={limit > 0 ? `${limit}개` : "전체"}
+                        open={openRow === "limit"}
+                        onToggle={() => toggleRow("limit")}
+                      >
+                        <input
+                          type="number"
+                          min={0}
+                          value={limit}
+                          onChange={(e) => setLimit(Number(e.target.value))}
+                          className={inputClass}
+                          placeholder="0 = 전체"
+                        />
+                      </RowExpand>
+                    )}
                   </PanelSection>
 
                   <Divider />
 
-                  {/* Style */}
+                  {/* style */}
                   <PanelSection title="스타일">
                     <RowExpand
                       icon={<Ic.color />}
@@ -935,7 +941,7 @@ export function SetupForm() {
 
                     <RowExpand
                       icon={<Ic.sliders />}
-                      label="추가 스타일"
+                      label="스타일 옵션 더 보기"
                       value=""
                       open={openRow === "more"}
                       onToggle={() => toggleRow("more")}
@@ -1034,7 +1040,7 @@ export function SetupForm() {
                     />
                   </PanelSection>
                 </div>
-              </aside>
+              </div>
             </>
           )}
         </div>
@@ -1538,6 +1544,13 @@ const Ic = {
     <SIcon>
       <path d="M4 4v11a4 4 0 0 0 4 4h11" />
       <path d="m15 15 4 4-4 4" />
+    </SIcon>
+  ),
+  target: () => (
+    <SIcon>
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1" fill="currentColor" />
     </SIcon>
   ),
   yaxis: () => (
