@@ -210,6 +210,7 @@ export function SetupForm() {
   });
   const [panelOpen, setPanelOpen] = useState(false);
   const [showData, setShowData] = useState(true);
+  const [copied, setCopied] = useState(false);
   const [openRow, setOpenRow] = useState<string | null>(null);
   const toggleRow = (id: string) => setOpenRow((cur) => (cur === id ? null : id));
   const [xAxis, setXAxis] = useState<AxisConfig>({});
@@ -407,6 +408,21 @@ export function SetupForm() {
     typeof window !== "undefined" && savedId
       ? `${window.location.origin}/w/${savedId}`
       : "";
+
+  // Snapshot embed: bake the current chart (type + data + config) into the URL hash.
+  const snapshotUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    if (!xKey || series.length === 0 || previewData.length === 0) return "";
+    try {
+      const json = JSON.stringify({ t: chartType, d: previewData, c: config });
+      const bytes = new TextEncoder().encode(json);
+      let bin = "";
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return `${window.location.origin}/s#${btoa(bin)}`;
+    } catch {
+      return "";
+    }
+  }, [chartType, previewData, config, xKey, series.length]);
 
   return (
     <>
@@ -670,31 +686,82 @@ export function SetupForm() {
 
           {/* save bar */}
           <div className="mt-4 space-y-3">
-            <button
-              type="button"
-              onClick={handleSave}
-              disabled={saving}
-              className={`${primaryBtn} w-full`}
-            >
-              {saving ? "저장 중..." : "위젯 저장 + 임베드 URL 발급"}
-            </button>
-            {savedId && (
-              <div className="rounded-md bg-[#f6f5f4] p-3">
-                <p className="text-xs text-[#615d59]">
-                  노션에서 <code className="rounded bg-white px-1">/embed</code> 블록에 붙여넣으세요.
-                </p>
-                <div className="mt-2 flex gap-2">
-                  <input readOnly value={embedUrl} className={`${inputClass} font-mono text-xs`} />
-                  <button
-                    type="button"
-                    onClick={() => navigator.clipboard.writeText(embedUrl)}
-                    className={primaryBtn}
-                  >
-                    복사
-                  </button>
+            {/* snapshot embed — no DB required */}
+            <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-white p-3.5 shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">
+                    임베드 URL <span className="text-[#9b9a97]">· DB 불필요</span>
+                  </p>
+                  <p className="mt-0.5 text-xs text-[#9b9a97]">
+                    노션 <code className="rounded bg-[#f1f1ef] px-1">/embed</code> 블록에 붙여넣으세요. 저장 시점 데이터로 고정됩니다.
+                  </p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!snapshotUrl) return;
+                    navigator.clipboard.writeText(snapshotUrl);
+                    setCopied(true);
+                    window.setTimeout(() => setCopied(false), 1500);
+                  }}
+                  disabled={!snapshotUrl}
+                  className={`${primaryBtn} shrink-0`}
+                >
+                  {copied ? "복사됨 ✓" : "복사"}
+                </button>
               </div>
-            )}
+              {snapshotUrl ? (
+                <input
+                  readOnly
+                  value={snapshotUrl}
+                  onFocus={(e) => e.currentTarget.select()}
+                  className={`${inputClass} mt-2 font-mono text-xs`}
+                />
+              ) : (
+                <p className="mt-2 text-xs text-[#a39e98]">
+                  먼저 표시할 데이터를 선택하세요.
+                </p>
+              )}
+            </div>
+
+            {/* live widget — needs DB */}
+            <details className="rounded-xl border border-[rgba(0,0,0,0.08)] bg-[#fbfbfa] px-3.5 py-2.5">
+              <summary className="cursor-pointer list-none text-sm font-medium text-[#787774]">
+                자동 갱신되는 라이브 위젯으로 저장 <span className="text-[#9b9a97]">· DB 필요</span>
+              </summary>
+              <div className="mt-3 space-y-3">
+                <p className="text-xs text-[#9b9a97]">
+                  열 때마다 노션에서 최신 데이터를 다시 불러옵니다. (Vercel에 Postgres 연결 필요)
+                </p>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className={`${primaryBtn} w-full`}
+                >
+                  {saving ? "저장 중..." : "라이브 위젯으로 저장"}
+                </button>
+                {savedId && (
+                  <div className="rounded-md bg-white p-3">
+                    <div className="flex gap-2">
+                      <input
+                        readOnly
+                        value={embedUrl}
+                        className={`${inputClass} font-mono text-xs`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => navigator.clipboard.writeText(embedUrl)}
+                        className={primaryBtn}
+                      >
+                        복사
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </details>
           </div>
 
           {error && (
