@@ -684,15 +684,12 @@ export function SetupForm() {
             )}
           </div>
 
-          {/* save bar */}
+          {/* embed bar */}
           <div className="mt-4 space-y-3">
-            {/* snapshot embed — no DB required */}
             <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-white p-3.5 shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">
-                    임베드 URL <span className="text-[#9b9a97]">· DB 불필요</span>
-                  </p>
+                  <p className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">임베드 URL</p>
                   <p className="mt-0.5 text-xs text-[#9b9a97]">
                     노션 <code className="rounded bg-[#f1f1ef] px-1">/embed</code> 블록에 붙여넣으세요. 저장 시점 데이터로 고정됩니다.
                   </p>
@@ -724,44 +721,6 @@ export function SetupForm() {
                 </p>
               )}
             </div>
-
-            {/* live widget — needs DB */}
-            <details className="rounded-xl border border-[rgba(0,0,0,0.08)] bg-[#fbfbfa] px-3.5 py-2.5">
-              <summary className="cursor-pointer list-none text-sm font-medium text-[#787774]">
-                자동 갱신되는 라이브 위젯으로 저장 <span className="text-[#9b9a97]">· DB 필요</span>
-              </summary>
-              <div className="mt-3 space-y-3">
-                <p className="text-xs text-[#9b9a97]">
-                  열 때마다 노션에서 최신 데이터를 다시 불러옵니다. (Vercel에 Postgres 연결 필요)
-                </p>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  className={`${primaryBtn} w-full`}
-                >
-                  {saving ? "저장 중..." : "라이브 위젯으로 저장"}
-                </button>
-                {savedId && (
-                  <div className="rounded-md bg-white p-3">
-                    <div className="flex gap-2">
-                      <input
-                        readOnly
-                        value={embedUrl}
-                        className={`${inputClass} font-mono text-xs`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => navigator.clipboard.writeText(embedUrl)}
-                        className={primaryBtn}
-                      >
-                        복사
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </details>
           </div>
 
           {error && (
