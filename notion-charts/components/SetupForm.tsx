@@ -1303,7 +1303,90 @@ function SeriesCard({
   );
 }
 
-/* ---------- Source data table ---------- */
+/* ---------- Source data table (Notion-style sort + filter) ---------- */
+
+type SortRule = { key: string; dir: "asc" | "desc" };
+type FilterRule = { key: string; op: string; value: string };
+
+const NUM_PROP_TYPES = new Set(["number", "formula", "rollup", "checkbox"]);
+const DATE_PROP_TYPES2 = new Set(["date", "created_time", "last_edited_time"]);
+
+function opsForType(type: string): [string, string][] {
+  if (NUM_PROP_TYPES.has(type))
+    return [
+      ["eq", "="],
+      ["neq", "≠"],
+      ["gt", ">"],
+      ["gte", "≥"],
+      ["lt", "<"],
+      ["lte", "≤"],
+      ["empty", "비어 있음"],
+      ["nempty", "값 있음"],
+    ];
+  if (DATE_PROP_TYPES2.has(type))
+    return [
+      ["eq", "같음"],
+      ["gte", "이후 ≥"],
+      ["lte", "이전 ≤"],
+      ["empty", "비어 있음"],
+      ["nempty", "값 있음"],
+    ];
+  return [
+    ["contains", "포함"],
+    ["ncontains", "미포함"],
+    ["eq", "같음"],
+    ["neq", "다름"],
+    ["empty", "비어 있음"],
+    ["nempty", "값 있음"],
+  ];
+}
+
+function matchFilter(v: string | number | null, op: string, value: string): boolean {
+  const empty = v === null || v === "";
+  if (op === "empty") return empty;
+  if (op === "nempty") return !empty;
+  if (value.trim() === "") return true;
+  const sv = String(v ?? "");
+  const nv = Number(v);
+  const nq = Number(value);
+  const bothNum = Number.isFinite(nv) && Number.isFinite(nq);
+  switch (op) {
+    case "contains":
+      return sv.toLowerCase().includes(value.toLowerCase());
+    case "ncontains":
+      return !sv.toLowerCase().includes(value.toLowerCase());
+    case "eq":
+      return bothNum ? nv === nq : sv === value;
+    case "neq":
+      return bothNum ? nv !== nq : sv !== value;
+    case "gt":
+      return bothNum ? nv > nq : sv > value;
+    case "gte":
+      return bothNum ? nv >= nq : sv >= value;
+    case "lt":
+      return bothNum ? nv < nq : sv < value;
+    case "lte":
+      return bothNum ? nv <= nq : sv <= value;
+    default:
+      return true;
+  }
+}
+
+function cmpVal(a: string | number | null, b: string | number | null): number {
+  const ae = a === null || a === "";
+  const be = b === null || b === "";
+  if (ae && be) return 0;
+  if (ae) return 1; // nulls last
+  if (be) return -1;
+  if (typeof a === "number" && typeof b === "number") return a - b;
+  const na = Number(a);
+  const nb = Number(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+  return String(a).localeCompare(String(b));
+}
+
+const tableSelect =
+  "max-w-[120px] cursor-pointer truncate rounded border border-[rgba(0,0,0,0.12)] bg-white px-1.5 py-1 text-xs text-[rgba(0,0,0,0.8)] focus:border-[#2383e2] focus:outline-none";
 
 function DataTable({
   properties,
@@ -1314,6 +1397,30 @@ function DataTable({
   rows: Record<string, unknown>[];
   highlight: Set<string>;
 }) {
+  const [sorts, setSorts] = useState<SortRule[]>([]);
+  const [filters, setFilters] = useState<FilterRule[]>([]);
+  const [menu, setMenu] = useState<null | "sort" | "filter">(null);
+
+  const propType = (k: string) => properties.find((p) => p.name === k)?.type ?? "rich_text";
+
+  const view = useMemo(() => {
+    let r = rows.map((row, i) => ({ row, i }));
+    for (const f of filters) {
+      if (!f.key) continue;
+      r = r.filter(({ row }) => matchFilter(extractValue(row[f.key]), f.op, f.value));
+    }
+    if (sorts.length) {
+      r = [...r].sort((a, b) => {
+        for (const s of sorts) {
+          const c = cmpVal(extractValue(a.row[s.key]), extractValue(b.row[s.key]));
+          if (c !== 0) return s.dir === "desc" ? -c : c;
+        }
+        return a.i - b.i;
+      });
+    }
+    return r;
+  }, [rows, filters, sorts]);
+
   if (properties.length === 0 || rows.length === 0) {
     return (
       <div className="border-t border-[rgba(0,0,0,0.06)] px-4 py-6 text-center text-sm text-[#a39e98]">
@@ -1321,56 +1428,233 @@ function DataTable({
       </div>
     );
   }
+
+  const sortOf = (k: string) => sorts.find((s) => s.key === k);
+  const sortIdx = (k: string) => sorts.findIndex((s) => s.key === k);
+
+  function headerClick(k: string) {
+    setSorts((prev) => {
+      if (prev.length === 1 && prev[0].key === k)
+        return prev[0].dir === "asc" ? [{ key: k, dir: "desc" }] : [];
+      return [{ key: k, dir: "asc" }];
+    });
+  }
+  function addSort() {
+    const used = new Set(sorts.map((s) => s.key));
+    const next = properties.find((p) => !used.has(p.name)) ?? properties[0];
+    setSorts((s) => [...s, { key: next.name, dir: "asc" }]);
+  }
+  function moveSort(i: number, d: -1 | 1) {
+    setSorts((prev) => {
+      const j = i + d;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+  function addFilter() {
+    const p = properties[0];
+    setFilters((f) => [...f, { key: p.name, op: opsForType(p.type)[0][0], value: "" }]);
+  }
+
+  const tbBtn = (active: boolean) =>
+    active
+      ? "inline-flex items-center gap-1 rounded-md bg-[#eaf4fd] px-2 py-1 text-xs font-medium text-[#2383e2]"
+      : "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[#787774] hover:bg-[rgba(55,53,47,0.06)]";
+
   return (
-    <div className="max-h-[420px] overflow-auto border-t border-[rgba(0,0,0,0.06)]">
-      <table className="w-full border-collapse text-[13px]">
-        <thead className="sticky top-0 z-10">
-          <tr className="bg-[#f7f7f5]">
-            <th className="sticky left-0 z-10 w-10 border-b border-r border-[rgba(0,0,0,0.07)] bg-[#f7f7f5] px-2 py-1.5 text-right font-medium text-[#9b9a97]">
-              #
-            </th>
-            {properties.map((p) => {
-              const on = highlight.has(p.name);
-              return (
-                <th
-                  key={p.name}
-                  className={`whitespace-nowrap border-b border-r border-[rgba(0,0,0,0.07)] px-3 py-1.5 text-left font-medium last:border-r-0 ${
-                    on ? "bg-[#eaf4fd] text-[#2383e2]" : "text-[#787774]"
-                  }`}
-                  title={p.type}
-                >
-                  {p.name}
-                </th>
-              );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="hover:bg-[rgba(55,53,47,0.025)]">
-              <td className="sticky left-0 w-10 border-b border-r border-[rgba(0,0,0,0.05)] bg-white px-2 py-1.5 text-right text-[#c2c0bc]">
-                {i + 1}
-              </td>
+    <div className="border-t border-[rgba(0,0,0,0.06)]">
+      {/* toolbar */}
+      <div className="relative flex items-center gap-1 px-3 py-1.5">
+        <button type="button" onClick={() => setMenu((m) => (m === "sort" ? null : "sort"))} className={tbBtn(sorts.length > 0)}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="m3 8 4-4 4 4" /><path d="M7 4v16" /><path d="m21 16-4 4-4-4" /><path d="M17 20V4" />
+          </svg>
+          정렬{sorts.length > 0 ? ` ${sorts.length}` : ""}
+        </button>
+        <button type="button" onClick={() => setMenu((m) => (m === "filter" ? null : "filter"))} className={tbBtn(filters.length > 0)}>
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+          </svg>
+          필터{filters.length > 0 ? ` ${filters.length}` : ""}
+        </button>
+        <span className="ml-auto text-xs text-[#9b9a97]">
+          {view.length === rows.length ? `${rows.length}개 행` : `${view.length} / ${rows.length}개 행`}
+        </span>
+
+        {menu && <div className="fixed inset-0 z-20" onClick={() => setMenu(null)} />}
+
+        {menu === "sort" && (
+          <div className="absolute left-2 top-9 z-30 w-[320px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white p-2 shadow-[rgba(15,15,15,0.16)_0px_8px_28px]">
+            {sorts.length === 0 && (
+              <p className="px-1 py-1.5 text-xs text-[#9b9a97]">정렬 기준이 없습니다. 위에서부터 우선 적용됩니다.</p>
+            )}
+            <div className="space-y-1">
+              {sorts.map((s, idx) => (
+                <div key={idx} className="flex items-center gap-1">
+                  <span className="w-4 shrink-0 text-center text-xs text-[#9b9a97]">{idx + 1}</span>
+                  <select
+                    value={s.key}
+                    onChange={(e) => setSorts((p) => p.map((x, i) => (i === idx ? { ...x, key: e.target.value } : x)))}
+                    className={`${tableSelect} flex-1`}
+                  >
+                    {properties.map((p) => (
+                      <option key={p.name} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={s.dir}
+                    onChange={(e) => setSorts((p) => p.map((x, i) => (i === idx ? { ...x, dir: e.target.value as "asc" | "desc" } : x)))}
+                    className={tableSelect}
+                  >
+                    <option value="asc">오름차순</option>
+                    <option value="desc">내림차순</option>
+                  </select>
+                  <button type="button" onClick={() => moveSort(idx, -1)} disabled={idx === 0} className="rounded px-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)] disabled:opacity-30" aria-label="위로">↑</button>
+                  <button type="button" onClick={() => moveSort(idx, 1)} disabled={idx === sorts.length - 1} className="rounded px-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)] disabled:opacity-30" aria-label="아래로">↓</button>
+                  <button type="button" onClick={() => setSorts((p) => p.filter((_, i) => i !== idx))} className="rounded px-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)]" aria-label="삭제">✕</button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <button type="button" onClick={addSort} className="rounded px-1.5 py-1 text-xs font-medium text-[#2383e2] hover:bg-[#eaf4fd]">+ 정렬 추가</button>
+              {sorts.length > 0 && (
+                <button type="button" onClick={() => setSorts([])} className="rounded px-1.5 py-1 text-xs text-[#9b9a97] hover:bg-[rgba(55,53,47,0.06)]">모두 지우기</button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {menu === "filter" && (
+          <div className="absolute left-2 top-9 z-30 w-[340px] rounded-lg border border-[rgba(0,0,0,0.1)] bg-white p-2 shadow-[rgba(15,15,15,0.16)_0px_8px_28px]">
+            {filters.length === 0 && (
+              <p className="px-1 py-1.5 text-xs text-[#9b9a97]">필터가 없습니다. 모든 조건은 AND로 결합됩니다.</p>
+            )}
+            <div className="space-y-1.5">
+              {filters.map((f, idx) => {
+                const ops = opsForType(propType(f.key));
+                const needsValue = f.op !== "empty" && f.op !== "nempty";
+                return (
+                  <div key={idx} className="flex flex-wrap items-center gap-1">
+                    <span className="text-xs text-[#9b9a97]">{idx === 0 ? "조건" : "그리고"}</span>
+                    <select
+                      value={f.key}
+                      onChange={(e) => {
+                        const nk = e.target.value;
+                        const nop = opsForType(propType(nk))[0][0];
+                        setFilters((p) => p.map((x, i) => (i === idx ? { ...x, key: nk, op: nop } : x)));
+                      }}
+                      className={`${tableSelect} flex-1`}
+                    >
+                      {properties.map((p) => (
+                        <option key={p.name} value={p.name}>{p.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={f.op}
+                      onChange={(e) => setFilters((p) => p.map((x, i) => (i === idx ? { ...x, op: e.target.value } : x)))}
+                      className={tableSelect}
+                    >
+                      {ops.map(([v, l]) => (
+                        <option key={v} value={v}>{l}</option>
+                      ))}
+                    </select>
+                    {needsValue && (
+                      <input
+                        value={f.value}
+                        onChange={(e) => setFilters((p) => p.map((x, i) => (i === idx ? { ...x, value: e.target.value } : x)))}
+                        className="w-[88px] rounded border border-[rgba(0,0,0,0.12)] bg-white px-1.5 py-1 text-xs focus:border-[#2383e2] focus:outline-none"
+                        placeholder="값"
+                      />
+                    )}
+                    <button type="button" onClick={() => setFilters((p) => p.filter((_, i) => i !== idx))} className="rounded px-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)]" aria-label="삭제">✕</button>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mt-1.5 flex items-center justify-between">
+              <button type="button" onClick={addFilter} className="rounded px-1.5 py-1 text-xs font-medium text-[#2383e2] hover:bg-[#eaf4fd]">+ 필터 추가</button>
+              {filters.length > 0 && (
+                <button type="button" onClick={() => setFilters([])} className="rounded px-1.5 py-1 text-xs text-[#9b9a97] hover:bg-[rgba(55,53,47,0.06)]">모두 지우기</button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* table */}
+      <div className="max-h-[420px] overflow-auto border-t border-[rgba(0,0,0,0.06)]">
+        <table className="w-full border-collapse text-[13px]">
+          <thead className="sticky top-0 z-10">
+            <tr className="bg-[#f7f7f5]">
+              <th className="sticky left-0 z-10 w-10 border-b border-r border-[rgba(0,0,0,0.07)] bg-[#f7f7f5] px-2 py-1.5 text-right font-medium text-[#9b9a97]">
+                #
+              </th>
               {properties.map((p) => {
                 const on = highlight.has(p.name);
-                const v = extractValue(row[p.name]);
-                const num = typeof v === "number";
+                const sr = sortOf(p.name);
                 return (
-                  <td
+                  <th
                     key={p.name}
-                    className={`max-w-[220px] truncate border-b border-r border-[rgba(0,0,0,0.05)] px-3 py-1.5 last:border-r-0 ${
-                      num ? "text-right tabular-nums" : "text-left"
-                    } ${on ? "bg-[#f5fafe] text-[rgba(0,0,0,0.85)]" : "text-[rgba(0,0,0,0.7)]"}`}
-                    title={v === null ? "" : String(v)}
+                    onClick={() => headerClick(p.name)}
+                    className={`group cursor-pointer select-none whitespace-nowrap border-b border-r border-[rgba(0,0,0,0.07)] px-3 py-1.5 text-left font-medium last:border-r-0 hover:bg-[#efefed] ${
+                      on ? "bg-[#eaf4fd] text-[#2383e2]" : "text-[#787774]"
+                    }`}
+                    title={`${p.name} (${p.type}) · 클릭하여 정렬`}
                   >
-                    {v === null ? <span className="text-[#d3d1cd]">—</span> : String(v)}
-                  </td>
+                    <span className="inline-flex items-center gap-1">
+                      {p.name}
+                      {sr ? (
+                        <span className="text-[#2383e2]">
+                          {sr.dir === "asc" ? "↑" : "↓"}
+                          {sorts.length > 1 && (
+                            <sup className="ml-0.5 text-[9px]">{sortIdx(p.name) + 1}</sup>
+                          )}
+                        </span>
+                      ) : (
+                        <span className="text-[#c9c7c3] opacity-0 group-hover:opacity-100">↕</span>
+                      )}
+                    </span>
+                  </th>
                 );
               })}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {view.map(({ row }, di) => (
+              <tr key={di} className="hover:bg-[rgba(55,53,47,0.025)]">
+                <td className="sticky left-0 w-10 border-b border-r border-[rgba(0,0,0,0.05)] bg-white px-2 py-1.5 text-right text-[#c2c0bc]">
+                  {di + 1}
+                </td>
+                {properties.map((p) => {
+                  const on = highlight.has(p.name);
+                  const v = extractValue(row[p.name]);
+                  const num = typeof v === "number";
+                  return (
+                    <td
+                      key={p.name}
+                      className={`max-w-[220px] truncate border-b border-r border-[rgba(0,0,0,0.05)] px-3 py-1.5 last:border-r-0 ${
+                        num ? "text-right tabular-nums" : "text-left"
+                      } ${on ? "bg-[#f5fafe] text-[rgba(0,0,0,0.85)]" : "text-[rgba(0,0,0,0.7)]"}`}
+                      title={v === null ? "" : String(v)}
+                    >
+                      {v === null ? <span className="text-[#d3d1cd]">—</span> : String(v)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            {view.length === 0 && (
+              <tr>
+                <td colSpan={properties.length + 1} className="px-4 py-6 text-center text-sm text-[#a39e98]">
+                  필터 조건에 맞는 행이 없습니다.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
