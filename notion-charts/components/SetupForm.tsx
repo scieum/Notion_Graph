@@ -14,6 +14,7 @@ import type {
 } from "@/lib/types";
 import { COUNT_KEY } from "@/lib/types";
 import { buildChartData } from "@/lib/chart-data";
+import { extractValue } from "@/lib/notion-values";
 import { ChartView, DEFAULT_PALETTE } from "@/components/charts/ChartView";
 
 type InspectResult = {
@@ -208,6 +209,7 @@ export function SetupForm() {
     omitZero: false,
   });
   const [panelOpen, setPanelOpen] = useState(false);
+  const [showData, setShowData] = useState(true);
   const [openRow, setOpenRow] = useState<string | null>(null);
   const toggleRow = (id: string) => setOpenRow((cur) => (cur === id ? null : id));
   const [xAxis, setXAxis] = useState<AxisConfig>({});
@@ -618,6 +620,52 @@ export function SetupForm() {
                 </div>
               )}
             </div>
+          </div>
+
+          {/* ===== source database table ===== */}
+          <div className="mt-4 overflow-hidden rounded-xl border border-[rgba(0,0,0,0.09)] bg-white shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
+            <div className="flex items-center justify-between gap-2 px-3.5 py-2.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="text-[#9b9a97]">
+                  <Ic.source />
+                </span>
+                <span className="text-[13px] font-semibold text-[rgba(0,0,0,0.82)]">
+                  데이터베이스
+                </span>
+                <span className="text-xs text-[#9b9a97]">
+                  {inspect.title ? `${inspect.title} · ` : ""}
+                  {properties.length}개 속성 · {inspect.rows.length}개 행
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowData((v) => !v)}
+                className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[13px] font-medium text-[#787774] transition-colors hover:bg-[rgba(55,53,47,0.06)]"
+              >
+                {showData ? "표 숨기기" : "표 보기"}
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                  className={`transition-transform ${showData ? "" : "-rotate-90"}`}
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+            </div>
+            {showData && (
+              <DataTable
+                properties={properties}
+                rows={inspect.rows}
+                highlight={new Set([xKey, ...series.map((s) => s.key)])}
+              />
+            )}
           </div>
 
           {/* save bar */}
@@ -1225,6 +1273,78 @@ function SeriesCard({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ---------- Source data table ---------- */
+
+function DataTable({
+  properties,
+  rows,
+  highlight,
+}: {
+  properties: NotionPropertyMeta[];
+  rows: Record<string, unknown>[];
+  highlight: Set<string>;
+}) {
+  if (properties.length === 0 || rows.length === 0) {
+    return (
+      <div className="border-t border-[rgba(0,0,0,0.06)] px-4 py-6 text-center text-sm text-[#a39e98]">
+        표시할 행이 없습니다.
+      </div>
+    );
+  }
+  return (
+    <div className="max-h-[420px] overflow-auto border-t border-[rgba(0,0,0,0.06)]">
+      <table className="w-full border-collapse text-[13px]">
+        <thead className="sticky top-0 z-10">
+          <tr className="bg-[#f7f7f5]">
+            <th className="sticky left-0 z-10 w-10 border-b border-r border-[rgba(0,0,0,0.07)] bg-[#f7f7f5] px-2 py-1.5 text-right font-medium text-[#9b9a97]">
+              #
+            </th>
+            {properties.map((p) => {
+              const on = highlight.has(p.name);
+              return (
+                <th
+                  key={p.name}
+                  className={`whitespace-nowrap border-b border-r border-[rgba(0,0,0,0.07)] px-3 py-1.5 text-left font-medium last:border-r-0 ${
+                    on ? "bg-[#eaf4fd] text-[#2383e2]" : "text-[#787774]"
+                  }`}
+                  title={p.type}
+                >
+                  {p.name}
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="hover:bg-[rgba(55,53,47,0.025)]">
+              <td className="sticky left-0 w-10 border-b border-r border-[rgba(0,0,0,0.05)] bg-white px-2 py-1.5 text-right text-[#c2c0bc]">
+                {i + 1}
+              </td>
+              {properties.map((p) => {
+                const on = highlight.has(p.name);
+                const v = extractValue(row[p.name]);
+                const num = typeof v === "number";
+                return (
+                  <td
+                    key={p.name}
+                    className={`max-w-[220px] truncate border-b border-r border-[rgba(0,0,0,0.05)] px-3 py-1.5 last:border-r-0 ${
+                      num ? "text-right tabular-nums" : "text-left"
+                    } ${on ? "bg-[#f5fafe] text-[rgba(0,0,0,0.85)]" : "text-[rgba(0,0,0,0.7)]"}`}
+                    title={v === null ? "" : String(v)}
+                  >
+                    {v === null ? <span className="text-[#d3d1cd]">—</span> : String(v)}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
