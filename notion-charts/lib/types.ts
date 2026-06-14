@@ -82,6 +82,10 @@ export type ChartStyle = {
   fillOpacity?: number;
   /** drop categories whose every series value is 0 / empty */
   omitZero?: boolean;
+  /** number of decimal places for chart numbers; undefined => auto (max 2) */
+  decimals?: number;
+  /** how to round to `decimals` places */
+  rounding?: "round" | "ceil" | "floor";
 };
 
 export type WidgetConfig = {

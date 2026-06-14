@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type {
   Aggregation,
   AxisConfig,
+  ChartDatum,
   ChartStyle,
   ChartType,
   LegendPosition,
@@ -26,6 +27,22 @@ type InspectResult = {
 
 const NUMERIC_TYPES = new Set(["number", "formula", "rollup", "checkbox"]);
 const DATE_TYPES = new Set(["date", "created_time", "last_edited_time"]);
+
+const DEFAULT_STYLE: ChartStyle = {
+  palette: DEFAULT_PALETTE,
+  background: "#ffffff",
+  showGrid: true,
+  legend: "bottom",
+  smooth: false,
+  showDataLabels: true,
+  stacked: false,
+  donut: false,
+  fillOpacity: 0.25,
+  omitZero: false,
+};
+
+/** One chart in a multi-tab embed: a display name + chart type + full config. */
+type ChartTab = { name: string; t: ChartType; c: WidgetConfig };
 
 /** Shared wrapper for the Lucide-style chart icons (currentColor = inherits text color). */
 function ChartIcon({ children }: { children: React.ReactNode }) {
@@ -196,21 +213,15 @@ export function SetupForm() {
   const [sortBy, setSortBy] = useState<"x" | "y" | "none">("none");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [limit, setLimit] = useState<number>(0);
-  const [style, setStyle] = useState<ChartStyle>({
-    palette: DEFAULT_PALETTE,
-    background: "#ffffff",
-    showGrid: true,
-    legend: "bottom",
-    smooth: false,
-    showDataLabels: true,
-    stacked: false,
-    donut: false,
-    fillOpacity: 0.25,
-    omitZero: false,
-  });
+  const [style, setStyle] = useState<ChartStyle>(DEFAULT_STYLE);
   const [panelOpen, setPanelOpen] = useState(false);
   const [showData, setShowData] = useState(true);
   const [copied, setCopied] = useState(false);
+  // Multi-chart embed: each tab is one chart. Empty => single-chart embed.
+  // `editingTab` is the tab the editor is currently bound to (null = scratch chart).
+  const [tabs, setTabs] = useState<ChartTab[]>([]);
+  const [editingTab, setEditingTab] = useState<number | null>(null);
+  const [dragTab, setDragTab] = useState<number | null>(null);
   // table view state — shared by the data table AND the chart
   const [tableSorts, setTableSorts] = useState<SortRule[]>([]);
   const [tableFilters, setTableFilters] = useState<FilterRule[]>([]);
@@ -272,6 +283,8 @@ export function SetupForm() {
     setTableSorts([]);
     setTableFilters([]);
     setFilterJoin("and");
+    setTabs([]);
+    setEditingTab(null);
     if (json.title) setTitle(json.title);
     const props = json.properties ?? [];
     if (props[0]) setXKey(props[0].name);
@@ -417,25 +430,107 @@ export function SetupForm() {
     setSeries((prev) => prev.filter((_, idx) => idx !== i));
   }
 
+  // ---- multi-chart tab helpers ----
+  // Load a saved tab's config back into all the editor fields.
+  const loadIntoEditor = useCallback((tab: ChartTab) => {
+    const c = tab.c;
+    setChartType(tab.t);
+    setTitle(c.title ?? "");
+    setXKey(c.xKey);
+    setSeries(c.series);
+    setAggregation(c.aggregation);
+    setSortBy(c.sortBy ?? "none");
+    setSortDir(c.sortDir ?? "asc");
+    setLimit(c.limit ?? 0);
+    setStyle(c.style ?? DEFAULT_STYLE);
+    setXAxis(c.xAxis ?? {});
+    setLeftAxis(c.leftAxis ?? {});
+    setRightAxis(c.rightAxis ?? {});
+  }, []);
+
+  // Add the chart currently in the editor as a new tab and bind the editor to it.
+  function addTab() {
+    setTabs((prev) => {
+      const name = title.trim() || `차트 ${prev.length + 1}`;
+      setEditingTab(prev.length);
+      return [...prev, { name, t: chartType, c: config }];
+    });
+  }
+  function selectTab(i: number) {
+    loadIntoEditor(tabs[i]);
+    setEditingTab(i);
+  }
+  function removeTab(i: number) {
+    setTabs((prev) => prev.filter((_, idx) => idx !== i));
+    setEditingTab((cur) => (cur === null ? null : cur === i ? null : cur > i ? cur - 1 : cur));
+  }
+  function renameTab(i: number, name: string) {
+    setTabs((prev) => prev.map((t, idx) => (idx === i ? { ...t, name } : t)));
+  }
+  function moveTab(from: number, to: number) {
+    if (from === to) return;
+    setTabs((prev) => {
+      const next = [...prev];
+      const [m] = next.splice(from, 1);
+      next.splice(to, 0, m);
+      return next;
+    });
+    setEditingTab((cur) => {
+      if (cur === null) return null;
+      if (cur === from) return to;
+      // shift indices that sit between the moved positions
+      if (from < cur && cur <= to) return cur - 1;
+      if (to <= cur && cur < from) return cur + 1;
+      return cur;
+    });
+  }
+
+  // Keep the bound tab in sync with live editor edits (name is preserved).
+  useEffect(() => {
+    if (editingTab === null) return;
+    setTabs((prev) =>
+      prev.map((t, i) => (i === editingTab ? { ...t, t: chartType, c: config } : t)),
+    );
+  }, [editingTab, chartType, config]);
+
   const embedUrl =
     typeof window !== "undefined" && savedId
       ? `${window.location.origin}/w/${savedId}`
       : "";
 
-  // Snapshot embed: bake the current chart (type + data + config) into the URL hash.
+  // Snapshot embed: bake the chart(s) into the URL hash. Multiple tabs → one
+  // tabbed embed; otherwise a single chart (backward-compatible shape).
   const snapshotUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
-    if (!xKey || series.length === 0 || previewData.length === 0) return "";
-    try {
-      const json = JSON.stringify({ t: chartType, d: previewData, c: config });
+    const encode = (payload: unknown) => {
+      const json = JSON.stringify(payload);
       const bytes = new TextEncoder().encode(json);
       let bin = "";
       for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
       return `${window.location.origin}/s#${btoa(bin)}`;
+    };
+    try {
+      if (tabs.length > 0) {
+        const built = tabs
+          .map((tb) => {
+            let d: ChartDatum[] = [];
+            try {
+              d = buildChartData(processedRows, tb.t, tb.c);
+            } catch {
+              d = [];
+            }
+            return { name: tb.name, t: tb.t, d, c: tb.c };
+          })
+          .filter((tb) => tb.c.xKey && tb.d.length > 0);
+        if (built.length === 0) return "";
+        return encode({ tabs: built });
+      }
+      if (!xKey || series.length === 0 || previewData.length === 0) return "";
+      return encode({ t: chartType, d: previewData, c: config });
     } catch {
       return "";
     }
-  }, [chartType, previewData, config, xKey, series.length]);
+  }, [tabs, processedRows, chartType, previewData, config, xKey, series.length]);
 
   return (
     <>
@@ -630,6 +725,69 @@ export function SetupForm() {
               </button>
             </div>
 
+            {/* chart tab strip — build several charts into one embed */}
+            <div className="flex items-center gap-1 overflow-x-auto border-t border-[rgba(0,0,0,0.06)] px-2.5 py-1.5">
+              {tabs.map((tb, i) => {
+                const activeTab = editingTab === i;
+                return (
+                  <div
+                    key={i}
+                    draggable
+                    onDragStart={() => setDragTab(i)}
+                    onDragOver={(e) => {
+                      if (dragTab !== null && dragTab !== i) e.preventDefault();
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragTab !== null) moveTab(dragTab, i);
+                      setDragTab(null);
+                    }}
+                    onDragEnd={() => setDragTab(null)}
+                    className={`group flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-1 text-xs transition-colors ${
+                      activeTab
+                        ? "border-[#2383e2]/40 bg-[#eaf4fd] text-[#2383e2]"
+                        : "border-transparent text-[#787774] hover:bg-[rgba(55,53,47,0.06)]"
+                    }`}
+                  >
+                    {activeTab ? (
+                      <input
+                        value={tb.name}
+                        onChange={(e) => renameTab(i, e.target.value)}
+                        size={Math.max(4, tb.name.length)}
+                        className="cursor-text bg-transparent font-medium text-[#2383e2] focus:outline-none"
+                        aria-label="탭 이름"
+                      />
+                    ) : (
+                      <button type="button" onClick={() => selectTab(i)} className="cursor-pointer font-medium">
+                        {tb.name || `차트 ${i + 1}`}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeTab(i)}
+                      className="rounded px-0.5 text-[#9b9a97] opacity-0 hover:bg-[rgba(55,53,47,0.12)] group-hover:opacity-100"
+                      aria-label="탭 삭제"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={addTab}
+                className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-[#787774] hover:bg-[rgba(55,53,47,0.06)]"
+                title="현재 차트를 새 탭으로 추가합니다"
+              >
+                ＋ {tabs.length === 0 ? "여러 차트(탭)로 만들기" : "차트 탭"}
+              </button>
+              {tabs.length > 0 && (
+                <span className="ml-auto shrink-0 pr-1 text-[11px] text-[#9b9a97]">
+                  {tabs.length}개 탭이 한 임베드에 포함됩니다
+                </span>
+              )}
+            </div>
+
             {/* chart */}
             <div
               className="px-4 pb-5 pt-1"
@@ -709,9 +867,17 @@ export function SetupForm() {
             <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-white p-3.5 shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">임베드 URL</p>
+                  <p className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">
+                    임베드 URL
+                    {tabs.length > 0 && (
+                      <span className="ml-1.5 rounded-full bg-[#eaf4fd] px-1.5 py-0.5 text-[11px] font-medium text-[#2383e2]">
+                        {tabs.length}개 탭
+                      </span>
+                    )}
+                  </p>
                   <p className="mt-0.5 text-xs text-[#9b9a97]">
                     노션 <code className="rounded bg-[#f1f1ef] px-1">/embed</code> 블록에 붙여넣으세요. 저장 시점 데이터로 고정됩니다.
+                    {tabs.length > 0 && " 임베드 안에서 탭으로 차트를 전환할 수 있습니다."}
                   </p>
                 </div>
                 <button
@@ -819,7 +985,7 @@ export function SetupForm() {
                   <PanelSection title="데이터">
                     <PropertyPicker
                       icon={<Ic.target />}
-                      label="표시 대상"
+                      label={chartType === "pie" ? "분류 기준" : "X축 (가로)"}
                       value={xKey}
                       options={isScatter ? numericProps : properties}
                       open={openRow === "xprop"}
@@ -832,7 +998,7 @@ export function SetupForm() {
 
                     <RowExpand
                       icon={<Ic.yaxis />}
-                      label={chartType === "pie" ? "분할 기준" : "데이터 계열"}
+                      label={chartType === "pie" ? "값 (크기 기준)" : "Y축 (데이터 계열)"}
                       value={
                         series.length === 1
                           ? series[0].label ?? series[0].key
@@ -1092,6 +1258,47 @@ export function SetupForm() {
                             <option value="right">오른쪽</option>
                             <option value="none">숨김</option>
                           </select>
+                        </Field>
+                        <Field label="숫자 표시 (소수점 · 반올림)">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={style.decimals ?? "auto"}
+                              onChange={(e) =>
+                                setStyle((s) => ({
+                                  ...s,
+                                  decimals: e.target.value === "auto" ? undefined : Number(e.target.value),
+                                }))
+                              }
+                              className={`${inputClass} flex-1`}
+                              title="소수점 자릿수"
+                            >
+                              <option value="auto">자동</option>
+                              <option value="0">정수 (0자리)</option>
+                              <option value="1">소수 1자리</option>
+                              <option value="2">소수 2자리</option>
+                              <option value="3">소수 3자리</option>
+                              <option value="4">소수 4자리</option>
+                            </select>
+                            <select
+                              value={style.rounding ?? "round"}
+                              onChange={(e) =>
+                                setStyle((s) => ({
+                                  ...s,
+                                  rounding: e.target.value as "round" | "ceil" | "floor",
+                                }))
+                              }
+                              className={`${inputClass} flex-1`}
+                              disabled={style.decimals == null}
+                              title="반올림 방식"
+                            >
+                              <option value="round">반올림</option>
+                              <option value="ceil">올림</option>
+                              <option value="floor">내림</option>
+                            </select>
+                          </div>
+                          <p className="mt-1 text-[11px] text-[#9b9a97]">
+                            소수점은 항상 마침표(.)로 표시됩니다. 반올림 방식은 자릿수를 지정해야 적용됩니다.
+                          </p>
                         </Field>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                           <Toggle
@@ -1460,6 +1667,31 @@ function DataTable({
 }) {
   const [menu, setMenu] = useState<null | "sort" | "filter">(null);
 
+  // User-defined column order (drag to reorder). Reconciled against the live
+  // property list so newly added / removed properties never break the table.
+  const [colOrder, setColOrder] = useState<string[] | null>(null);
+  const [dragCol, setDragCol] = useState<string | null>(null);
+  const [overCol, setOverCol] = useState<string | null>(null);
+
+  const orderedProps = useMemo(() => {
+    if (!colOrder) return properties;
+    const byName = new Map(properties.map((p) => [p.name, p]));
+    const inOrder = colOrder.filter((n) => byName.has(n));
+    const appended = properties.filter((p) => !inOrder.includes(p.name)).map((p) => p.name);
+    return [...inOrder, ...appended].map((n) => byName.get(n)!);
+  }, [properties, colOrder]);
+
+  function moveColumn(from: string, to: string) {
+    if (from === to) return;
+    const names = orderedProps.map((p) => p.name);
+    const fi = names.indexOf(from);
+    const ti = names.indexOf(to);
+    if (fi < 0 || ti < 0) return;
+    names.splice(fi, 1);
+    names.splice(names.indexOf(to) + (ti > fi ? 1 : 0), 0, from);
+    setColOrder(names);
+  }
+
   const propType = (k: string) => properties.find((p) => p.name === k)?.type ?? "rich_text";
 
   if (properties.length === 0 || totalCount === 0) {
@@ -1662,19 +1894,47 @@ function DataTable({
               <th className="sticky left-0 z-10 w-10 border-b border-r border-[rgba(0,0,0,0.07)] bg-[#f7f7f5] px-2 py-1.5 text-right font-medium text-[#9b9a97]">
                 #
               </th>
-              {properties.map((p) => {
+              {orderedProps.map((p) => {
                 const on = highlight.has(p.name);
                 const sr = sortOf(p.name);
+                const dragging = dragCol === p.name;
+                const dropTarget = overCol === p.name && dragCol !== null && dragCol !== p.name;
                 return (
                   <th
                     key={p.name}
+                    draggable
                     onClick={() => headerClick(p.name)}
-                    className={`group cursor-pointer select-none whitespace-nowrap border-b border-r border-[rgba(0,0,0,0.07)] px-3 py-1.5 text-left font-medium last:border-r-0 hover:bg-[#efefed] ${
+                    onDragStart={(e) => {
+                      setDragCol(p.name);
+                      e.dataTransfer.effectAllowed = "move";
+                    }}
+                    onDragOver={(e) => {
+                      if (dragCol && dragCol !== p.name) {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = "move";
+                        setOverCol(p.name);
+                      }
+                    }}
+                    onDragLeave={() => setOverCol((c) => (c === p.name ? null : c))}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragCol) moveColumn(dragCol, p.name);
+                      setDragCol(null);
+                      setOverCol(null);
+                    }}
+                    onDragEnd={() => {
+                      setDragCol(null);
+                      setOverCol(null);
+                    }}
+                    className={`group relative cursor-pointer select-none whitespace-nowrap border-b border-r border-[rgba(0,0,0,0.07)] px-3 py-1.5 text-left font-medium last:border-r-0 hover:bg-[#efefed] ${
                       on ? "bg-[#eaf4fd] text-[#2383e2]" : "text-[#787774]"
+                    } ${dragging ? "opacity-40" : ""} ${
+                      dropTarget ? "border-l-2 border-l-[#2383e2]" : ""
                     }`}
-                    title={`${p.name} (${p.type}) · 클릭하여 정렬`}
+                    title={`${p.name} (${p.type}) · 클릭: 정렬 · 드래그: 열 이동`}
                   >
                     <span className="inline-flex items-center gap-1">
+                      <span className="cursor-grab text-[#c9c7c3] opacity-0 group-hover:opacity-100" aria-hidden>⋮⋮</span>
                       {p.name}
                       {sr ? (
                         <span className="text-[#2383e2]">
@@ -1698,7 +1958,7 @@ function DataTable({
                 <td className="sticky left-0 w-10 border-b border-r border-[rgba(0,0,0,0.05)] bg-white px-2 py-1.5 text-right text-[#c2c0bc]">
                   {di + 1}
                 </td>
-                {properties.map((p) => {
+                {orderedProps.map((p) => {
                   const on = highlight.has(p.name);
                   const v = extractValue(row[p.name]);
                   const num = typeof v === "number";

@@ -60,10 +60,54 @@ const TOOLTIP_STYLE = {
   boxShadow: "rgba(0,0,0,0.08) 0px 6px 24px",
 };
 
-function fmt(value: unknown): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return String(value ?? "");
-  const rounded = Math.round(value * 100) / 100;
-  return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
+type Formatter = (value: unknown) => string;
+
+/**
+ * Build a number formatter from the chart style.
+ * - Always uses "en-US" grouping so the decimal separator is "." (some locales
+ *   render "," for decimals via toLocaleString(undefined, …) — this fixes that).
+ * - Honours an explicit decimal count + rounding mode (round / ceil / floor).
+ */
+function makeFmt(style: NonNullable<WidgetConfig["style"]>): Formatter {
+  const decimals = style.decimals;
+  const mode = style.rounding ?? "round";
+  return (value: unknown): string => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return String(value ?? "");
+    if (decimals == null) {
+      const rounded = Math.round(value * 100) / 100;
+      return rounded.toLocaleString("en-US", { maximumFractionDigits: 2 });
+    }
+    const f = Math.pow(10, decimals);
+    let n =
+      mode === "ceil"
+        ? Math.ceil(value * f) / f
+        : mode === "floor"
+          ? Math.floor(value * f) / f
+          : Math.round(value * f) / f;
+    if (Object.is(n, -0)) n = 0;
+    return n.toLocaleString("en-US", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  };
+}
+
+/**
+ * Axis-tick formatter: abbreviates large magnitudes (12,345 → "12.3K") so long
+ * numbers never get clipped off the axis. Small values fall back to `fmt`.
+ */
+function makeTick(fmt: Formatter): Formatter {
+  const trim = (n: number) => String(Math.round(n * 10) / 10);
+  return (value: unknown): string => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return String(value ?? "");
+    const abs = Math.abs(value);
+    const sign = value < 0 ? "-" : "";
+    if (abs >= 1e12) return `${sign}${trim(abs / 1e12)}T`;
+    if (abs >= 1e9) return `${sign}${trim(abs / 1e9)}B`;
+    if (abs >= 1e6) return `${sign}${trim(abs / 1e6)}M`;
+    if (abs >= 1e4) return `${sign}${trim(abs / 1e3)}K`;
+    return fmt(value);
+  };
 }
 
 function colorFor(series: SeriesConfig, index: number, palette: string[]): string {
@@ -110,6 +154,8 @@ export function ChartView({
       ? "none"
       : style.legend ?? "bottom";
   const fillOpacity = style.fillOpacity ?? 0.25;
+  const fmt = makeFmt(style);
+  const tickFmt = makeTick(fmt);
   const uid = useId().replace(/:/g, "");
 
   const axisTickStyle = (axis?: AxisConfig) => ({
@@ -177,7 +223,7 @@ export function ChartView({
           <RadarChart data={data} outerRadius="72%">
             <PolarGrid stroke={gridColor} />
             <PolarAngleAxis dataKey="label" tick={axisTickStyle(config.xAxis)} />
-            <PolarRadiusAxis tick={axisTickStyle(config.leftAxis)} domain={domainFor(config.leftAxis)} />
+            <PolarRadiusAxis tick={axisTickStyle(config.leftAxis)} tickFormatter={tickFmt} domain={domainFor(config.leftAxis)} />
             <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => fmt(v)} />
             {legendPos !== "none" && (
               <Legend {...legendProps(legendPos)} wrapperStyle={{ fontSize: 12, color: "#615d59" }} />
@@ -227,6 +273,10 @@ export function ChartView({
           <XAxis
             dataKey="x"
             type={isScatter ? "number" : "category"}
+            // Band scale centres categories within their slot so line/area points
+            // get the same comfortable edge spacing bars already have (instead of
+            // a "point" scale that glues the first/last point to the axis edges).
+            scale={isScatter ? "auto" : "band"}
             name={config.xAxis?.title}
             padding={{ left: 24, right: 24 }}
             tick={axisTickStyle(config.xAxis)}
@@ -244,6 +294,8 @@ export function ChartView({
             type="number"
             domain={domainFor(config.leftAxis)}
             tick={axisTickStyle(config.leftAxis)}
+            tickFormatter={tickFmt}
+            width={config.leftAxis?.title ? 72 : 56}
             tickLine={false}
             axisLine={false}
             hide={config.leftAxis?.hide}
@@ -260,6 +312,8 @@ export function ChartView({
               orientation="right"
               domain={domainFor(config.rightAxis)}
               tick={axisTickStyle(config.rightAxis)}
+              tickFormatter={tickFmt}
+              width={config.rightAxis?.title ? 72 : 56}
               tickLine={false}
               axisLine={false}
               hide={config.rightAxis?.hide}
@@ -281,7 +335,7 @@ export function ChartView({
           )}
 
           {series.map((s, i) =>
-            renderSeries(s, i, type, palette, style, isScatter, fillOpacity, uid, data, singleSeries),
+            renderSeries(s, i, type, palette, style, isScatter, fillOpacity, uid, data, singleSeries, fmt),
           )}
           {series.map((s, i) => renderTrendline(s, i, palette))}
         </ComposedChart>
@@ -301,6 +355,7 @@ function renderSeries(
   uid: string,
   data: ChartDatum[],
   singleSeries: boolean,
+  fmt: Formatter,
 ) {
   const color = colorFor(s, i, palette);
   const yAxisId = s.axis === "right" ? "right" : "left";

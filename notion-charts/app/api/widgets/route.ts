@@ -52,6 +52,8 @@ const Style = z.object({
   donut: z.boolean().optional(),
   barRadius: z.number().optional(),
   fillOpacity: z.number().optional(),
+  decimals: z.number().int().min(0).max(6).optional(),
+  rounding: z.enum(["round", "ceil", "floor"]).optional(),
 });
 
 const Body = z.object({
