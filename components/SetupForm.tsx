@@ -302,6 +302,8 @@ export function SetupForm() {
   const [dashTitle, setDashTitle] = useState("");
   const [blocks, setBlocks] = useState<DashBlockEdit[]>([]);
   const [statColumns, setStatColumns] = useState(0); // 0 = auto
+  // id of the chart block currently being edited inline (dashboard mode), or null
+  const [editingBlock, setEditingBlock] = useState<number | null>(null);
   const blockId = useRef(1);
   // table view state — shared by the data table AND the chart
   const [tableSorts, setTableSorts] = useState<SortRule[]>([]);
@@ -372,6 +374,7 @@ export function SetupForm() {
     setBlocks([]);
     setDashTitle("");
     setStatColumns(0);
+    setEditingBlock(null);
     if (json.title) setTitle(json.title);
     const props = json.properties ?? [];
     if (props[0]) setXKey(props[0].name);
@@ -580,6 +583,16 @@ export function SetupForm() {
     );
   }, [editingTab, chartType, config]);
 
+  // Keep the bound dashboard chart block in sync with live editor edits.
+  useEffect(() => {
+    if (editingBlock === null) return;
+    setBlocks((prev) =>
+      prev.map((b) =>
+        b.id === editingBlock && b.kind === "chart" ? { ...b, t: chartType, c: config } : b,
+      ),
+    );
+  }, [editingBlock, chartType, config]);
+
   // ---- dashboard block helpers ----
   // New blocks append to the bottom (natural order); reorder by dragging.
   function addStatBlock() {
@@ -599,17 +612,27 @@ export function SetupForm() {
   function addTableBlock() {
     setBlocks((b) => [...b, { id: blockId.current++, kind: "table", title: inspect?.title ?? "표" }]);
   }
+  // Add a chart block from the current editor config and open it for inline editing.
   function addChartBlock() {
+    const id = blockId.current++;
     setBlocks((b) => [
       ...b,
-      { id: blockId.current++, kind: "chart", title: title || undefined, t: chartType, c: config },
+      { id, kind: "chart", title: title || undefined, t: chartType, c: config },
     ]);
+    setEditingBlock(id);
+  }
+  // Edit an existing chart block: load its config into the editor + bind to it.
+  function editChartBlock(b: DashBlockEdit) {
+    if (b.kind !== "chart") return;
+    loadIntoEditor({ name: "", t: b.t, c: b.c });
+    setEditingBlock(b.id);
   }
   function updateBlock(id: number, patch: Partial<DashBlockEdit>) {
     setBlocks((b) => b.map((x) => (x.id === id ? ({ ...x, ...patch } as DashBlockEdit) : x)));
   }
   function removeBlock(id: number) {
     setBlocks((b) => b.filter((x) => x.id !== id));
+    if (id === editingBlock) setEditingBlock(null);
   }
   function moveBlock(i: number, dir: -1 | 1) {
     setBlocks((prev) => {
@@ -861,7 +884,10 @@ export function SetupForm() {
               <div className="flex rounded-lg border border-[rgba(0,0,0,0.1)] bg-[#f7f7f5] p-0.5 text-xs font-medium">
                 <button
                   type="button"
-                  onClick={() => setMode("chart")}
+                  onClick={() => {
+                    setMode("chart");
+                    setEditingBlock(null);
+                  }}
                   className={
                     mode === "chart"
                       ? "rounded-md bg-white px-3 py-1 text-[#37352f] shadow-[rgba(15,15,15,0.08)_0px_1px_2px]"
@@ -890,8 +916,21 @@ export function SetupForm() {
             </div>
           </div>
 
-          {/* hero chart card */}
+          {/* hero chart card — shown in chart mode, or when editing a dashboard chart block */}
+          {(mode === "chart" || editingBlock !== null) && (
           <div className="overflow-hidden rounded-xl border border-[rgba(0,0,0,0.09)] bg-white shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
+            {mode === "dashboard" && editingBlock !== null && (
+              <div className="flex items-center justify-between gap-2 border-b border-[#2383e2]/20 bg-[#eaf4fd] px-3 py-1.5">
+                <span className="text-xs font-medium text-[#2383e2]">차트 블록 편집 중 — 아래에서 바로 조정하세요</span>
+                <button
+                  type="button"
+                  onClick={() => setEditingBlock(null)}
+                  className="rounded-md bg-[#2383e2] px-2.5 py-1 text-xs font-semibold text-white hover:bg-[#1b6fc4]"
+                >
+                  완료
+                </button>
+              </div>
+            )}
             {/* notion-style toolbar */}
             <div className="flex items-center justify-between gap-2 px-3 py-2">
               <div className="flex min-w-0 items-center gap-1.5 rounded-md bg-[rgba(55,53,47,0.06)] px-2.5 py-1">
@@ -1002,6 +1041,33 @@ export function SetupForm() {
               )}
             </div>
           </div>
+          )}
+
+          {/* dashboard composer — top of the dashboard tab so it's seen immediately */}
+          {mode === "dashboard" && (
+            <DashboardComposer
+              dashTitle={dashTitle}
+              setDashTitle={setDashTitle}
+              blocks={blocks}
+              numericProps={numericProps}
+              properties={properties}
+              dashboard={dashboard}
+              dashboardUrl={dashboardUrl}
+              statColumns={statColumns}
+              setStatColumns={setStatColumns}
+              editingId={editingBlock}
+              onAddStat={addStatBlock}
+              onAddTable={addTableBlock}
+              onAddChart={addChartBlock}
+              onEditChart={editChartBlock}
+              onUpdate={updateBlock}
+              onRemove={removeBlock}
+              onMove={moveBlock}
+              onReorder={reorderBlock}
+              copied={copied}
+              setCopied={setCopied}
+            />
+          )}
 
           {/* ===== source database table ===== */}
           <div className="mt-4 overflow-hidden rounded-xl border border-[rgba(0,0,0,0.09)] bg-white shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
@@ -1103,30 +1169,6 @@ export function SetupForm() {
               )}
             </div>
           </div>
-          )}
-
-          {/* dashboard composer (dashboard mode) */}
-          {mode === "dashboard" && (
-            <DashboardComposer
-              dashTitle={dashTitle}
-              setDashTitle={setDashTitle}
-              blocks={blocks}
-              numericProps={numericProps}
-              properties={properties}
-              dashboard={dashboard}
-              dashboardUrl={dashboardUrl}
-              statColumns={statColumns}
-              setStatColumns={setStatColumns}
-              onAddStat={addStatBlock}
-              onAddTable={addTableBlock}
-              onAddChart={addChartBlock}
-              onUpdate={updateBlock}
-              onRemove={removeBlock}
-              onMove={moveBlock}
-              onReorder={reorderBlock}
-              copied={copied}
-              setCopied={setCopied}
-            />
           )}
 
           {error && (
@@ -1602,9 +1644,11 @@ function DashboardComposer({
   dashboardUrl,
   statColumns,
   setStatColumns,
+  editingId,
   onAddStat,
   onAddTable,
   onAddChart,
+  onEditChart,
   onUpdate,
   onRemove,
   onMove,
@@ -1621,9 +1665,11 @@ function DashboardComposer({
   dashboardUrl: string;
   statColumns: number;
   setStatColumns: (v: number) => void;
+  editingId: number | null;
   onAddStat: () => void;
   onAddTable: () => void;
   onAddChart: () => void;
+  onEditChart: (b: DashBlockEdit) => void;
   onUpdate: (id: number, patch: Partial<DashBlockEdit>) => void;
   onRemove: (id: number) => void;
   onMove: (i: number, dir: -1 | 1) => void;
@@ -1652,7 +1698,7 @@ function DashboardComposer({
           <div className="flex flex-wrap gap-1.5">
             <button type="button" onClick={onAddStat} className={addBtn}>＋ 숫자 카드</button>
             <button type="button" onClick={onAddTable} className={addBtn}>＋ 표</button>
-            <button type="button" onClick={onAddChart} className={addBtn}>＋ 현재 차트</button>
+            <button type="button" onClick={onAddChart} className={addBtn}>＋ 차트</button>
           </div>
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -1806,9 +1852,22 @@ function DashboardComposer({
                 </div>
               )}
               {b.kind === "chart" && (
-                <p className="mt-2 text-xs text-[#9b9a97]">
-                  추가 시점의 차트가 저장됩니다. 수정하려면 위에서 차트를 바꾼 뒤 새로 추가하세요.
-                </p>
+                <div className="mt-2 flex items-center gap-2">
+                  {editingId === b.id ? (
+                    <span className="rounded-md bg-[#eaf4fd] px-2 py-1 text-xs font-medium text-[#2383e2]">
+                      편집 중 — 위 차트 편집기에서 조정하세요
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onEditChart(b)}
+                      className="rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-2.5 py-1 text-xs font-medium text-[#2383e2] hover:border-[#2383e2]/50"
+                    >
+                      ✎ 차트 편집
+                    </button>
+                  )}
+                  <span className="text-xs text-[#9b9a97]">{b.t} · 클릭하면 차트 탭처럼 조정합니다</span>
+                </div>
               )}
               {b.kind === "table" && (
                 <p className="mt-2 text-xs text-[#9b9a97]">
