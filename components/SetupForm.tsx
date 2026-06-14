@@ -579,10 +579,10 @@ export function SetupForm() {
   }, [editingTab, chartType, config]);
 
   // ---- dashboard block helpers ----
+  // New blocks land at the TOP so the user immediately sees what they added.
   function addStatBlock() {
     const num = numericProps[0]?.name;
     setBlocks((b) => [
-      ...b,
       {
         id: blockId.current++,
         kind: "stat",
@@ -591,15 +591,16 @@ export function SetupForm() {
         valueKey: num ?? COUNT_KEY,
         agg: num ? "avg" : "count",
       },
+      ...b,
     ]);
   }
   function addTableBlock() {
-    setBlocks((b) => [...b, { id: blockId.current++, kind: "table", title: inspect?.title ?? "표" }]);
+    setBlocks((b) => [{ id: blockId.current++, kind: "table", title: inspect?.title ?? "표" }, ...b]);
   }
   function addChartBlock() {
     setBlocks((b) => [
-      ...b,
       { id: blockId.current++, kind: "chart", title: title || undefined, t: chartType, c: config },
+      ...b,
     ]);
   }
   function updateBlock(id: number, patch: Partial<DashBlockEdit>) {
@@ -1650,6 +1651,14 @@ function DashboardComposer({
         />
       </div>
 
+      {/* live preview — kept at the top so newly added blocks show immediately */}
+      {blocks.length > 0 && (
+        <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-[#fafafa] p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">미리보기</p>
+          <DashboardView dash={dashboard} />
+        </div>
+      )}
+
       {/* block editors */}
       {blocks.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[rgba(0,0,0,0.18)] py-8 text-center text-sm text-[#a39e98]">
@@ -1737,14 +1746,6 @@ function DashboardComposer({
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {/* live preview */}
-      {blocks.length > 0 && (
-        <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-[#fafafa] p-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">미리보기</p>
-          <DashboardView dash={dashboard} />
         </div>
       )}
 
