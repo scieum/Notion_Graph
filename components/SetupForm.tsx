@@ -750,13 +750,22 @@ export function SetupForm() {
               <span className="text-sm text-[rgba(0,0,0,0.85)]">
                 ✓ 연결됨{workspace ? ` · ${workspace}` : ""}
               </span>
-              <button
-                type="button"
-                onClick={handleDisconnect}
-                className="text-xs text-[#615d59] underline hover:text-[#dd5b00]"
-              >
-                연결 해제
-              </button>
+              <div className="flex items-center gap-3">
+                <a
+                  href="/api/notion/connect"
+                  className="text-xs font-medium text-[#2383e2] underline hover:text-[#1b6fc4]"
+                  title="연결 해제 없이 노션 인증 화면에서 페이지를 추가로 선택합니다"
+                >
+                  ＋ 페이지 추가 연결
+                </a>
+                <button
+                  type="button"
+                  onClick={handleDisconnect}
+                  className="text-xs text-[#615d59] underline hover:text-[#dd5b00]"
+                >
+                  연결 해제
+                </button>
+              </div>
             </div>
             <Field label="데이터베이스 선택">
               <div className="flex gap-2">
@@ -779,6 +788,15 @@ export function SetupForm() {
                 </select>
                 <button
                   type="button"
+                  onClick={() => loadDatabases()}
+                  disabled={loadingDbs}
+                  className="shrink-0 whitespace-nowrap rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-3 py-2 text-sm font-medium text-[#37352f] hover:border-[rgba(0,0,0,0.3)] disabled:opacity-50"
+                  title="노션에서 공유를 바꿨다면 목록을 새로고침합니다"
+                >
+                  {loadingDbs ? "…" : "↻"}
+                </button>
+                <button
+                  type="button"
                   onClick={handleSelectDatabase}
                   disabled={inspecting || !selectedDb}
                   className={`${primaryBtn} shrink-0 whitespace-nowrap`}
@@ -787,10 +805,14 @@ export function SetupForm() {
                 </button>
               </div>
             </Field>
+            <p className="text-xs text-[#a39e98]">
+              찾는 DB가 없나요? 위의 <span className="font-medium text-[#2383e2]">＋ 페이지 추가 연결</span>로
+              노션 인증 화면에서 페이지를 더 선택하면 됩니다(연결 해제 불필요). 노션에서 직접 공유했다면 ↻로 새로고침하세요.
+            </p>
             {databases.length === 0 && !loadingDbs && (
               <p className="text-xs text-[#a39e98]">
-                권한 준 DB가 없습니다. ‘연결 해제’ 후 다시 연결하면서 노션 인증 화면에서 사용할
-                페이지·데이터베이스를 선택하세요.
+                아직 권한 준 DB가 없습니다. <span className="font-medium text-[#2383e2]">＋ 페이지 추가 연결</span>을 눌러
+                노션 인증 화면에서 사용할 페이지·데이터베이스를 선택하세요.
               </p>
             )}
           </div>
