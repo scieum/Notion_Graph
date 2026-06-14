@@ -16,6 +16,21 @@ function fmtNum(v: number | undefined): string {
   return rounded.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
+// Literal class strings so Tailwind generates them (no dynamic `grid-cols-${n}`).
+const STAT_COLS: Record<number, string> = {
+  1: "grid-cols-1",
+  2: "grid-cols-1 sm:grid-cols-2",
+  3: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3",
+  4: "grid-cols-1 sm:grid-cols-2 lg:grid-cols-4",
+};
+
+/** Auto (setting falsy) grows 1→2→3 with card count; otherwise honour the fixed setting. */
+function statGridClass(setting: number | undefined, count: number): string {
+  const cols =
+    setting && setting >= 1 && setting <= 4 ? setting : Math.min(Math.max(count, 1), 3);
+  return STAT_COLS[cols] ?? STAT_COLS[3];
+}
+
 /** Render a baked dashboard. Shared by the builder preview and the /s embed. */
 export function DashboardView({
   dash,
@@ -55,7 +70,7 @@ export function DashboardView({
       )}
       {rows.map((row, ri) =>
         row.kind === "stats" ? (
-          <div key={ri} className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div key={ri} className={`grid gap-4 ${statGridClass(dash.statColumns, row.items.length)}`}>
             {row.items.map((s, i) => (
               <StatCard key={i} block={s} fg={fg} sub={sub} cardBg={cardBg} cardBorder={cardBorder} />
             ))}

@@ -301,6 +301,7 @@ export function SetupForm() {
   const [mode, setMode] = useState<"chart" | "dashboard">("chart");
   const [dashTitle, setDashTitle] = useState("");
   const [blocks, setBlocks] = useState<DashBlockEdit[]>([]);
+  const [statColumns, setStatColumns] = useState(0); // 0 = auto
   const blockId = useRef(1);
   // table view state — shared by the data table AND the chart
   const [tableSorts, setTableSorts] = useState<SortRule[]>([]);
@@ -370,6 +371,7 @@ export function SetupForm() {
     setEditingTab(null);
     setBlocks([]);
     setDashTitle("");
+    setStatColumns(0);
     if (json.title) setTitle(json.title);
     const props = json.properties ?? [];
     if (props[0]) setXKey(props[0].name);
@@ -618,6 +620,16 @@ export function SetupForm() {
       return next;
     });
   }
+  function reorderBlock(from: number, to: number) {
+    if (from === to) return;
+    setBlocks((prev) => {
+      if (from < 0 || from >= prev.length || to < 0 || to >= prev.length) return prev;
+      const next = [...prev];
+      const [m] = next.splice(from, 1);
+      next.splice(to, 0, m);
+      return next;
+    });
+  }
 
   const embedUrl =
     typeof window !== "undefined" && savedId
@@ -655,6 +667,7 @@ export function SetupForm() {
   const dashboard: DashboardSnapshot = useMemo(
     () => ({
       title: dashTitle || undefined,
+      statColumns: statColumns || undefined,
       blocks: blocks.map((b) => {
         if (b.kind === "stat") {
           const r = computeStat(processedRows, b.valueKey, b.agg, b.groupBy);
@@ -672,7 +685,7 @@ export function SetupForm() {
         return { kind: "chart" as const, title: b.title, t: b.t, d, c: b.c };
       }),
     }),
-    [blocks, dashTitle, processedRows, properties],
+    [blocks, dashTitle, statColumns, processedRows, properties],
   );
 
   const dashboardUrl = useMemo(() => {
@@ -1114,12 +1127,15 @@ export function SetupForm() {
               properties={properties}
               dashboard={dashboard}
               dashboardUrl={dashboardUrl}
+              statColumns={statColumns}
+              setStatColumns={setStatColumns}
               onAddStat={addStatBlock}
               onAddTable={addTableBlock}
               onAddChart={addChartBlock}
               onUpdate={updateBlock}
               onRemove={removeBlock}
               onMove={moveBlock}
+              onReorder={reorderBlock}
               copied={copied}
               setCopied={setCopied}
             />
@@ -1596,12 +1612,15 @@ function DashboardComposer({
   properties,
   dashboard,
   dashboardUrl,
+  statColumns,
+  setStatColumns,
   onAddStat,
   onAddTable,
   onAddChart,
   onUpdate,
   onRemove,
   onMove,
+  onReorder,
   copied,
   setCopied,
 }: {
@@ -1612,15 +1631,20 @@ function DashboardComposer({
   properties: NotionPropertyMeta[];
   dashboard: DashboardSnapshot;
   dashboardUrl: string;
+  statColumns: number;
+  setStatColumns: (v: number) => void;
   onAddStat: () => void;
   onAddTable: () => void;
   onAddChart: () => void;
   onUpdate: (id: number, patch: Partial<DashBlockEdit>) => void;
   onRemove: (id: number) => void;
   onMove: (i: number, dir: -1 | 1) => void;
+  onReorder: (from: number, to: number) => void;
   copied: boolean;
   setCopied: (v: boolean) => void;
 }) {
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
   const kindLabel = (k: DashBlockEdit["kind"]) =>
     k === "stat" ? "숫자 카드" : k === "table" ? "표" : "차트";
   const addBtn =
@@ -1643,12 +1667,29 @@ function DashboardComposer({
             <button type="button" onClick={onAddChart} className={addBtn}>＋ 현재 차트</button>
           </div>
         </div>
-        <input
-          value={dashTitle}
-          onChange={(e) => setDashTitle(e.target.value)}
-          className={`${inputClass} mt-3`}
-          placeholder="대시보드 제목 (선택)"
-        />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <input
+            value={dashTitle}
+            onChange={(e) => setDashTitle(e.target.value)}
+            className={`${inputClass} flex-1`}
+            placeholder="대시보드 제목 (선택)"
+          />
+          <label className="flex shrink-0 items-center gap-1.5 text-xs text-[#787774]">
+            숫자 카드 단
+            <select
+              value={statColumns}
+              onChange={(e) => setStatColumns(Number(e.target.value))}
+              className="cursor-pointer rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-2 py-1.5 text-xs text-[rgba(0,0,0,0.8)] focus:border-[#2383e2] focus:outline-none"
+              title="숫자 카드 가로 칸 수"
+            >
+              <option value={0}>자동</option>
+              <option value={1}>1단</option>
+              <option value={2}>2단</option>
+              <option value={3}>3단</option>
+              <option value={4}>4단</option>
+            </select>
+          </label>
+        </div>
       </div>
 
       {/* live preview — kept at the top so newly added blocks show immediately */}
@@ -1667,8 +1708,43 @@ function DashboardComposer({
       ) : (
         <div className="space-y-2">
           {blocks.map((b, i) => (
-            <div key={b.id} className="rounded-lg border border-[rgba(0,0,0,0.1)] bg-[#fbfbfa] p-3">
+            <div
+              key={b.id}
+              onDragOver={(e) => {
+                if (dragIdx !== null && dragIdx !== i) {
+                  e.preventDefault();
+                  setOverIdx(i);
+                }
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (dragIdx !== null) onReorder(dragIdx, i);
+                setDragIdx(null);
+                setOverIdx(null);
+              }}
+              className={`rounded-lg border bg-[#fbfbfa] p-3 transition-colors ${
+                overIdx === i && dragIdx !== null && dragIdx !== i
+                  ? "border-[#2383e2] ring-1 ring-[#2383e2]/40"
+                  : "border-[rgba(0,0,0,0.1)]"
+              } ${dragIdx === i ? "opacity-40" : ""}`}
+            >
               <div className="flex items-center gap-2">
+                <span
+                  draggable
+                  onDragStart={(e) => {
+                    setDragIdx(i);
+                    e.dataTransfer.effectAllowed = "move";
+                  }}
+                  onDragEnd={() => {
+                    setDragIdx(null);
+                    setOverIdx(null);
+                  }}
+                  className="cursor-grab select-none px-0.5 text-[#bdbbb7] hover:text-[#787774] active:cursor-grabbing"
+                  title="드래그하여 위치 이동"
+                  aria-label="드래그 핸들"
+                >
+                  ⠿
+                </span>
                 <span className="rounded bg-[rgba(55,53,47,0.06)] px-1.5 py-0.5 text-[11px] font-medium text-[#787774]">
                   {kindLabel(b.kind)}
                 </span>

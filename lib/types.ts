@@ -166,6 +166,8 @@ export type DashBlock = DashStatBlock | DashTableBlock | DashChartBlock;
 
 export type DashboardSnapshot = {
   title?: string;
+  /** stat-card columns: undefined/0 = auto (grows 1→2→3); else fixed 1–4 */
+  statColumns?: number;
   blocks: DashBlock[];
 };
 
