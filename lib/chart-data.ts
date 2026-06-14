@@ -28,8 +28,8 @@ export function buildChartData(
 
   let data: ChartDatum[];
 
-  if (chartType === "scatter") {
-    // Each row is an (x, y...) point; no aggregation.
+  if (chartType === "scatter" || chartType === "bubble") {
+    // Each row is an (x, y[, size]) point; no aggregation.
     data = [];
     for (const row of rows) {
       const xn = toNumber(extractValue(row[xKey]));
@@ -41,6 +41,11 @@ export function buildChartData(
         if (yn !== null) {
           datum[s.key] = yn;
           any = true;
+        }
+        // Bubble: carry the size property's value so ZAxis can scale the point.
+        if (s.sizeKey) {
+          const zn = toNumber(extractValue(row[s.sizeKey]));
+          if (zn !== null) datum[s.sizeKey] = zn;
         }
       }
       if (any) data.push(datum);

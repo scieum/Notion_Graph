@@ -7,6 +7,8 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  Funnel,
+  FunnelChart,
   Label,
   LabelList,
   Legend,
@@ -18,6 +20,8 @@ import {
   PolarRadiusAxis,
   Radar,
   RadarChart,
+  RadialBar,
+  RadialBarChart,
   ResponsiveContainer,
   Scatter,
   Tooltip,
@@ -148,9 +152,11 @@ export function ChartView({
   const gridColor = style.gridColor ?? "rgba(55,53,47,0.09)";
   const showGrid = style.showGrid !== false;
   const series = resolveSeries(config);
+  // Category charts legend their slices/segments, not their (single) series.
+  const categoryLegend = type === "pie" || type === "radialBar" || type === "funnel";
   // Notion hides the legend for a single series — it's redundant with the title.
   const legendPos: LegendPosition =
-    (style.legend ?? "bottom") !== "none" && series.length <= 1 && type !== "pie"
+    (style.legend ?? "bottom") !== "none" && series.length <= 1 && !categoryLegend
       ? "none"
       : style.legend ?? "bottom";
   const fillOpacity = style.fillOpacity ?? 0.25;
@@ -248,9 +254,158 @@ export function ChartView({
     );
   }
 
-  // ---- Cartesian: bar / line / area / scatter / combo ----
-  const isScatter = type === "scatter";
-  const hasRight = series.some((s) => s.axis === "right");
+  // ---- Radial bar (circular bars, one per category) ----
+  if (type === "radialBar") {
+    const s = series[0];
+    return (
+      <Wrapper background={background}>
+        <ResponsiveContainer width="100%" height="100%">
+          <RadialBarChart
+            data={data}
+            innerRadius="20%"
+            outerRadius="95%"
+            startAngle={90}
+            endAngle={-270}
+            barCategoryGap={2}
+          >
+            <PolarAngleAxis type="number" domain={[0, "auto"]} tick={false} />
+            <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => fmt(v)} />
+            {legendPos !== "none" && (
+              <Legend {...legendProps(legendPos)} wrapperStyle={{ fontSize: 12, color: "#615d59" }} />
+            )}
+            <RadialBar
+              dataKey={s.key}
+              background={{ fill: "rgba(55,53,47,0.06)" }}
+              cornerRadius={6}
+              isAnimationActive={false}
+              label={
+                style.showDataLabels
+                  ? { position: "insideStart", fill: "#fff", fontSize: 11, formatter: (v: unknown) => fmt(v) }
+                  : undefined
+              }
+            >
+              {data.map((_, i) => (
+                <Cell key={i} fill={palette[i % palette.length]} />
+              ))}
+            </RadialBar>
+          </RadialBarChart>
+        </ResponsiveContainer>
+      </Wrapper>
+    );
+  }
+
+  // ---- Funnel (stage-by-stage drop-off) ----
+  if (type === "funnel") {
+    const s = series[0];
+    return (
+      <Wrapper background={background}>
+        <ResponsiveContainer width="100%" height="100%">
+          <FunnelChart>
+            <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => fmt(v)} />
+            <Funnel
+              dataKey={s.key}
+              nameKey="label"
+              data={data}
+              isAnimationActive={false}
+              stroke="#ffffff"
+            >
+              {data.map((_, i) => (
+                <Cell key={i} fill={palette[i % palette.length]} />
+              ))}
+              <LabelList
+                position="right"
+                dataKey="label"
+                stroke="none"
+                style={{ fontSize: 12, fill: "#615d59" }}
+              />
+              {style.showDataLabels && (
+                <LabelList
+                  position="inside"
+                  dataKey={s.key}
+                  stroke="none"
+                  style={{ fontSize: 12, fill: "#fff", fontWeight: 600 }}
+                  formatter={(v: unknown) => fmt(v)}
+                />
+              )}
+            </Funnel>
+          </FunnelChart>
+        </ResponsiveContainer>
+      </Wrapper>
+    );
+  }
+
+  // ---- Cartesian: bar / line / area / scatter / bubble / combo / hbar ----
+  const isScatter = type === "scatter" || type === "bubble";
+  const horizontal = type === "hbar";
+  const hasRight = !horizontal && series.some((s) => s.axis === "right");
+  // Bubble: scale point area by a third (size) property.
+  const bubbleSizeKey = type === "bubble" ? series[0]?.sizeKey : undefined;
+
+  // ---- Horizontal bar (category on Y, value on X) ----
+  if (horizontal) {
+    return (
+      <Wrapper background={background}>
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart
+            data={data}
+            layout="vertical"
+            margin={{ top: 12, right: 24, bottom: 8, left: 8 }}
+          >
+            {showGrid && <CartesianGrid stroke={gridColor} strokeDasharray="3 3" horizontal={false} vertical />}
+            <XAxis
+              type="number"
+              domain={domainFor(config.leftAxis)}
+              tick={axisTickStyle(config.leftAxis)}
+              tickFormatter={tickFmt}
+              tickLine={false}
+              axisLine={false}
+              hide={config.leftAxis?.hide}
+              allowDataOverflow={config.leftAxis?.min != null || config.leftAxis?.max != null}
+            />
+            <YAxis
+              type="category"
+              dataKey="x"
+              tick={axisTickStyle(config.xAxis)}
+              tickLine={false}
+              axisLine={false}
+              width={config.xAxis?.hide ? 0 : 96}
+              hide={config.xAxis?.hide}
+            />
+            <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: "rgba(0,0,0,0.04)" }} formatter={(v) => fmt(v)} />
+            {legendPos !== "none" && (
+              <Legend {...legendProps(legendPos)} wrapperStyle={{ fontSize: 12, color: "#615d59" }} />
+            )}
+            {series.map((s, i) => {
+              const color = colorFor(s, i, palette);
+              const perCategory = singleSeries && !style.stacked && !s.color;
+              return (
+                <Bar
+                  key={s.key}
+                  dataKey={s.key}
+                  name={s.label ?? s.key}
+                  fill={color}
+                  radius={[0, style.barRadius ?? 4, style.barRadius ?? 4, 0]}
+                  maxBarSize={32}
+                  stackId={style.stacked ? "stack" : undefined}
+                  isAnimationActive={false}
+                >
+                  {perCategory && data.map((_, di) => <Cell key={di} fill={palette[di % palette.length]} />)}
+                  {style.showDataLabels && (
+                    <LabelList
+                      dataKey={s.key}
+                      position="right"
+                      style={{ fontSize: 12, fill: "#787774", fontWeight: 500 }}
+                      formatter={(v: unknown) => fmt(v)}
+                    />
+                  )}
+                </Bar>
+              );
+            })}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </Wrapper>
+    );
+  }
 
   return (
     <Wrapper background={background}>
@@ -324,7 +479,12 @@ export function ChartView({
               )}
             </YAxis>
           )}
-          {isScatter && <ZAxis range={[50, 50]} />}
+          {isScatter &&
+            (bubbleSizeKey ? (
+              <ZAxis dataKey={bubbleSizeKey} range={[60, 620]} name="크기" />
+            ) : (
+              <ZAxis range={[50, 50]} />
+            ))}
           <Tooltip
             contentStyle={TOOLTIP_STYLE}
             cursor={isScatter ? { strokeDasharray: "3 3" } : { fill: "rgba(0,0,0,0.04)" }}
@@ -381,11 +541,20 @@ function renderSeries(
 
   const kind = type === "combo" ? s.type ?? "bar" : type;
 
-  if (kind === "line") {
+  // combo: a single series rendered as points
+  if (kind === "scatter") {
+    return (
+      <Scatter key={s.key} name={name} dataKey={s.key} fill={color} yAxisId={yAxisId} isAnimationActive={false}>
+        {labels}
+      </Scatter>
+    );
+  }
+
+  if (kind === "line" || kind === "step") {
     return (
       <Line
         key={s.key}
-        type={curve}
+        type={kind === "step" ? "stepAfter" : curve}
         dataKey={s.key}
         name={name}
         yAxisId={yAxisId}

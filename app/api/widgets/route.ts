@@ -25,10 +25,11 @@ const Trendline = z.object({
 const Series = z.object({
   key: z.string().min(1),
   label: z.string().optional(),
-  type: z.enum(["bar", "line", "area"]).optional(),
+  type: z.enum(["bar", "line", "area", "scatter", "step"]).optional(),
   color: z.string().optional(),
   axis: z.enum(["left", "right"]).optional(),
   aggregation: Aggregation.optional(),
+  sizeKey: z.string().optional(),
   trendline: Trendline.optional(),
 });
 
@@ -61,7 +62,19 @@ const Body = z.object({
   token: z.string().min(10).optional(),
   databaseId: z.string().optional(),
   dataSourceId: z.string().min(8),
-  chartType: z.enum(["bar", "line", "area", "scatter", "pie", "combo", "radar"]),
+  chartType: z.enum([
+    "bar",
+    "line",
+    "area",
+    "scatter",
+    "pie",
+    "combo",
+    "radar",
+    "hbar",
+    "bubble",
+    "radialBar",
+    "funnel",
+  ]),
   config: z.object({
     title: z.string().optional(),
     xKey: z.string().min(1),

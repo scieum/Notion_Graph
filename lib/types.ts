@@ -5,7 +5,11 @@ export type ChartType =
   | "scatter"
   | "pie"
   | "combo"
-  | "radar";
+  | "radar"
+  | "hbar"
+  | "bubble"
+  | "radialBar"
+  | "funnel";
 
 export type Aggregation =
   | "sum"
@@ -17,7 +21,7 @@ export type Aggregation =
   | "none";
 
 /** Per-series render type, used when chart_type === "combo". */
-export type SeriesType = "bar" | "line" | "area";
+export type SeriesType = "bar" | "line" | "area" | "scatter" | "step";
 
 export type TrendlineType =
   | "none"
@@ -49,6 +53,8 @@ export type SeriesConfig = {
   axis?: "left" | "right";
   /** per-series aggregation; falls back to config.aggregation */
   aggregation?: Aggregation;
+  /** bubble charts: property whose value drives each point's size */
+  sizeKey?: string;
   trendline?: TrendlineConfig;
 };
 

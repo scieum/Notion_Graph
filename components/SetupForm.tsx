@@ -150,6 +150,54 @@ const CHART_TYPES: { value: ChartType; label: string; icon: React.ReactNode }[] 
       </ChartIcon>
     ),
   },
+  {
+    value: "hbar",
+    label: "가로 막대",
+    icon: (
+      <ChartIcon>
+        <path d="M5 3v18" />
+        <path d="M9 7h7" />
+        <path d="M9 12h11" />
+        <path d="M9 17h5" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "bubble",
+    label: "버블",
+    icon: (
+      <ChartIcon>
+        <path d="M3 3v16a2 2 0 0 0 2 2h16" />
+        <circle cx="9" cy="14" r="2.2" />
+        <circle cx="17" cy="8" r="3" />
+        <circle cx="15" cy="16" r="1.4" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "radialBar",
+    label: "방사형 막대",
+    icon: (
+      <ChartIcon>
+        <path d="M12 12a6 6 0 0 1 6 6" />
+        <path d="M12 12a9 9 0 0 1 6.4 2.6" />
+        <path d="M12 12a4 4 0 0 0-4 4" />
+        <circle cx="12" cy="12" r="1" />
+      </ChartIcon>
+    ),
+  },
+  {
+    value: "funnel",
+    label: "깔때기",
+    icon: (
+      <ChartIcon>
+        <path d="M4 5h16" />
+        <path d="M7 10h10" />
+        <path d="M10 15h4" />
+        <path d="M11 20h2" />
+      </ChartIcon>
+    ),
+  },
 ];
 
 const PALETTE_PRESETS: { name: string; colors: string[] }[] = [
@@ -241,8 +289,11 @@ export function SetupForm() {
     [properties],
   );
 
-  const isCartesian = ["bar", "line", "area", "scatter", "combo"].includes(chartType);
-  const isScatter = chartType === "scatter";
+  const isCartesian = ["bar", "line", "area", "scatter", "bubble", "combo", "hbar"].includes(chartType);
+  // "point" charts place one dot per row (numeric X, no aggregation).
+  const isScatter = chartType === "scatter" || chartType === "bubble";
+  // charts with a left/right dual value axis
+  const isDualAxis = ["bar", "line", "area", "combo"].includes(chartType);
   const hasRight = series.some((s) => s.axis === "right");
 
   const config: WidgetConfig = useMemo(
@@ -985,7 +1036,13 @@ export function SetupForm() {
                   <PanelSection title="데이터">
                     <PropertyPicker
                       icon={<Ic.target />}
-                      label={chartType === "pie" ? "분류 기준" : "X축 (가로)"}
+                      label={
+                        chartType === "pie" || chartType === "radialBar" || chartType === "funnel"
+                          ? "분류 기준"
+                          : chartType === "hbar"
+                            ? "항목 (세로축)"
+                            : "X축 (가로)"
+                      }
                       value={xKey}
                       options={isScatter ? numericProps : properties}
                       open={openRow === "xprop"}
@@ -998,7 +1055,11 @@ export function SetupForm() {
 
                     <RowExpand
                       icon={<Ic.yaxis />}
-                      label={chartType === "pie" ? "값 (크기 기준)" : "Y축 (데이터 계열)"}
+                      label={
+                        chartType === "pie" || chartType === "radialBar" || chartType === "funnel"
+                          ? "값 (크기 기준)"
+                          : "Y축 (데이터 계열)"
+                      }
                       value={
                         series.length === 1
                           ? series[0].label ?? series[0].key
@@ -1016,6 +1077,7 @@ export function SetupForm() {
                             chartType={chartType}
                             isCartesian={isCartesian}
                             isScatter={isScatter}
+                            isDualAxis={isDualAxis}
                             numericProps={numericProps}
                             dateProps={properties.filter((p) => DATE_TYPES.has(p.type))}
                             paletteColor={
@@ -1030,9 +1092,15 @@ export function SetupForm() {
                         <button type="button" onClick={addSeries} className={ghostBtn}>
                           + 계열 추가
                         </button>
-                        {chartType === "pie" && series.length > 1 && (
+                        {(chartType === "pie" || chartType === "radialBar" || chartType === "funnel") &&
+                          series.length > 1 && (
+                            <p className="text-xs text-[#a39e98]">
+                              이 차트는 첫 번째 계열만 사용합니다.
+                            </p>
+                          )}
+                        {chartType === "bubble" && (
                           <p className="text-xs text-[#a39e98]">
-                            파이 차트는 첫 번째 계열만 사용합니다.
+                            버블: X축·Y축은 숫자 속성, 점 크기는 계열의 “크기 기준”으로 정합니다.
                           </p>
                         )}
                       </div>
@@ -1088,7 +1156,10 @@ export function SetupForm() {
                       />
                     )}
 
-                    {(chartType === "bar" || chartType === "area" || chartType === "combo") && (
+                    {(chartType === "bar" ||
+                      chartType === "hbar" ||
+                      chartType === "area" ||
+                      chartType === "combo") && (
                       <RowToggleRow
                         icon={<Ic.stack />}
                         label="누적"
@@ -1358,6 +1429,7 @@ function SeriesCard({
   chartType,
   isCartesian,
   isScatter,
+  isDualAxis,
   numericProps,
   dateProps,
   paletteColor,
@@ -1369,6 +1441,7 @@ function SeriesCard({
   chartType: ChartType;
   isCartesian: boolean;
   isScatter: boolean;
+  isDualAxis: boolean;
   numericProps: NotionPropertyMeta[];
   dateProps: NotionPropertyMeta[];
   paletteColor: string;
@@ -1376,7 +1449,7 @@ function SeriesCard({
   onRemove?: () => void;
 }) {
   const trend = series.trendline?.type ?? "none";
-  const showTrend = isCartesian && chartType !== "bar";
+  const showTrend = isCartesian && chartType !== "bar" && chartType !== "hbar";
   return (
     <div className="rounded-md border border-[rgba(0,0,0,0.1)] bg-[#fbfbfa] p-3">
       <div className="flex items-center gap-2">
@@ -1451,9 +1524,26 @@ function SeriesCard({
             <option value="bar">막대</option>
             <option value="line">선</option>
             <option value="area">영역</option>
+            <option value="step">계단선</option>
+            <option value="scatter">점</option>
           </select>
         )}
-        {isCartesian && (
+        {chartType === "bubble" && (
+          <select
+            value={series.sizeKey ?? ""}
+            onChange={(e) => onChange({ sizeKey: e.target.value || undefined })}
+            className={inputClass}
+            title="점 크기 기준"
+          >
+            <option value="">크기: 균일</option>
+            {numericProps.map((p) => (
+              <option key={p.name} value={p.name}>
+                크기: {p.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {isDualAxis && (
           <select
             value={series.axis ?? "left"}
             onChange={(e) => onChange({ axis: e.target.value as "left" | "right" })}
