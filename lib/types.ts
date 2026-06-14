@@ -134,5 +134,40 @@ export type ChartDatum = {
   label?: string;
 } & Record<string, string | number | null | undefined>;
 
+/* ---- Dashboard (multi-widget) — baked shapes carried in the embed ---- */
+
+export type DashStatBlock = {
+  kind: "stat";
+  title?: string;
+  caption?: string;
+  unit?: string;
+  /** single aggregate */
+  value?: number;
+  /** per-group aggregates (when grouped) */
+  groups?: { label: string; value: number }[];
+};
+
+export type DashTableBlock = {
+  kind: "table";
+  title?: string;
+  properties: NotionPropertyMeta[];
+  rows: Record<string, unknown>[];
+};
+
+export type DashChartBlock = {
+  kind: "chart";
+  title?: string;
+  t: ChartType;
+  d: ChartDatum[];
+  c: WidgetConfig;
+};
+
+export type DashBlock = DashStatBlock | DashTableBlock | DashChartBlock;
+
+export type DashboardSnapshot = {
+  title?: string;
+  blocks: DashBlock[];
+};
+
 export const TREND_PREFIX = "__trend__";
 export const COUNT_KEY = "__count__";

@@ -2,14 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { ChartView } from "@/components/charts/ChartView";
-import type { ChartDatum, ChartType, WidgetConfig } from "@/lib/types";
+import { DashboardView } from "@/components/DashboardView";
+import type { ChartDatum, ChartType, DashboardSnapshot, WidgetConfig } from "@/lib/types";
 
 type Chart = { name?: string; t: ChartType; d: ChartDatum[]; c: WidgetConfig };
-/** Decoded payload: either a single chart or a tabbed set of charts. */
-type Snapshot = { charts: Chart[] };
+/** Decoded payload: a single/tabbed chart set, or a multi-widget dashboard. */
+type Decoded =
+  | { kind: "charts"; charts: Chart[] }
+  | { kind: "dash"; dash: DashboardSnapshot };
 
 /** Decode a base64 (UTF-8) payload carried in the URL hash fragment. */
-function decode(hash: string): Snapshot | null {
+function decode(hash: string): Decoded | null {
   try {
     const b64 = hash.replace(/^#/, "");
     if (!b64) return null;
@@ -17,16 +20,20 @@ function decode(hash: string): Snapshot | null {
     const json = new TextDecoder().decode(bytes);
     const obj = JSON.parse(json);
     if (!obj || typeof obj !== "object") return null;
+    // Dashboard shape: { dash: { title?, blocks: [...] } }
+    if (obj.dash && Array.isArray(obj.dash.blocks)) {
+      return { kind: "dash", dash: obj.dash as DashboardSnapshot };
+    }
     // Multi-tab shape: { tabs: [{ name, t, d, c }] }
     if (Array.isArray(obj.tabs)) {
       const charts = obj.tabs.filter(
         (c: unknown): c is Chart =>
           !!c && typeof c === "object" && !!(c as Chart).t && Array.isArray((c as Chart).d),
       );
-      return charts.length > 0 ? { charts } : null;
+      return charts.length > 0 ? { kind: "charts", charts } : null;
     }
     // Single-chart shape (backward compatible): { t, d, c }
-    if (obj.t && Array.isArray(obj.d)) return { charts: [obj as Chart] };
+    if (obj.t && Array.isArray(obj.d)) return { kind: "charts", charts: [obj as Chart] };
     return null;
   } catch {
     return null;
@@ -34,7 +41,7 @@ function decode(hash: string): Snapshot | null {
 }
 
 export default function SnapshotPage() {
-  const [snap, setSnap] = useState<Snapshot | null>(null);
+  const [snap, setSnap] = useState<Decoded | null>(null);
   const [ready, setReady] = useState(false);
   const [active, setActive] = useState(0);
 
@@ -49,7 +56,20 @@ export default function SnapshotPage() {
     return () => window.removeEventListener("hashchange", read);
   }, []);
 
-  const charts = snap?.charts ?? [];
+  // ---- Dashboard ----
+  if (snap?.kind === "dash") {
+    const bg = snap.dash.blocks.find((b) => b.kind === "chart")?.c.style?.background;
+    const background = bg && bg !== "transparent" ? bg : "#ffffff";
+    const dark = isDark(background);
+    return (
+      <main className="min-h-screen w-screen overflow-auto p-4" style={{ background }}>
+        <DashboardView dash={snap.dash} dark={dark} />
+      </main>
+    );
+  }
+
+  // ---- Single / tabbed charts ----
+  const charts = snap?.kind === "charts" ? snap.charts : [];
   const current = charts[Math.min(active, charts.length - 1)];
   const tabbed = charts.length > 1;
 

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   Aggregation,
   AxisConfig,
   ChartDatum,
   ChartStyle,
   ChartType,
+  DashboardSnapshot,
   LegendPosition,
   NotionPropertyMeta,
   SeriesConfig,
@@ -15,8 +16,10 @@ import type {
 } from "@/lib/types";
 import { COUNT_KEY } from "@/lib/types";
 import { buildChartData } from "@/lib/chart-data";
+import { computeStat } from "@/lib/stats";
 import { extractValue } from "@/lib/notion-values";
 import { ChartView, DEFAULT_PALETTE } from "@/components/charts/ChartView";
+import { DashboardView } from "@/components/DashboardView";
 
 type InspectResult = {
   dataSourceId: string;
@@ -43,6 +46,30 @@ const DEFAULT_STYLE: ChartStyle = {
 
 /** One chart in a multi-tab embed: a display name + chart type + full config. */
 type ChartTab = { name: string; t: ChartType; c: WidgetConfig };
+
+/** Editor-side dashboard block (holds config; data is baked at snapshot time). */
+type DashBlockEdit =
+  | {
+      id: number;
+      kind: "stat";
+      title?: string;
+      caption?: string;
+      valueKey: string;
+      agg: Aggregation;
+      groupBy?: string;
+      unit?: string;
+    }
+  | { id: number; kind: "table"; title?: string }
+  | { id: number; kind: "chart"; title?: string; t: ChartType; c: WidgetConfig };
+
+/** Base64-encode a payload into a /s embed URL (UTF-8 safe). */
+function toSnapshotUrl(payload: unknown): string {
+  const json = JSON.stringify(payload);
+  const bytes = new TextEncoder().encode(json);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return `${window.location.origin}/s#${btoa(bin)}`;
+}
 
 /** Shared wrapper for the Lucide-style chart icons (currentColor = inherits text color). */
 function ChartIcon({ children }: { children: React.ReactNode }) {
@@ -270,6 +297,11 @@ export function SetupForm() {
   const [tabs, setTabs] = useState<ChartTab[]>([]);
   const [editingTab, setEditingTab] = useState<number | null>(null);
   const [dragTab, setDragTab] = useState<number | null>(null);
+  // Dashboard mode: a stack of stat / table / chart blocks in one embed.
+  const [mode, setMode] = useState<"chart" | "dashboard">("chart");
+  const [dashTitle, setDashTitle] = useState("");
+  const [blocks, setBlocks] = useState<DashBlockEdit[]>([]);
+  const blockId = useRef(1);
   // table view state — shared by the data table AND the chart
   const [tableSorts, setTableSorts] = useState<SortRule[]>([]);
   const [tableFilters, setTableFilters] = useState<FilterRule[]>([]);
@@ -336,6 +368,8 @@ export function SetupForm() {
     setFilterJoin("and");
     setTabs([]);
     setEditingTab(null);
+    setBlocks([]);
+    setDashTitle("");
     if (json.title) setTitle(json.title);
     const props = json.properties ?? [];
     if (props[0]) setXKey(props[0].name);
@@ -544,6 +578,46 @@ export function SetupForm() {
     );
   }, [editingTab, chartType, config]);
 
+  // ---- dashboard block helpers ----
+  function addStatBlock() {
+    const num = numericProps[0]?.name;
+    setBlocks((b) => [
+      ...b,
+      {
+        id: blockId.current++,
+        kind: "stat",
+        title: num ? `${num} 평균` : "행 개수",
+        caption: num ? "평균" : "개수",
+        valueKey: num ?? COUNT_KEY,
+        agg: num ? "avg" : "count",
+      },
+    ]);
+  }
+  function addTableBlock() {
+    setBlocks((b) => [...b, { id: blockId.current++, kind: "table", title: inspect?.title ?? "표" }]);
+  }
+  function addChartBlock() {
+    setBlocks((b) => [
+      ...b,
+      { id: blockId.current++, kind: "chart", title: title || undefined, t: chartType, c: config },
+    ]);
+  }
+  function updateBlock(id: number, patch: Partial<DashBlockEdit>) {
+    setBlocks((b) => b.map((x) => (x.id === id ? ({ ...x, ...patch } as DashBlockEdit) : x)));
+  }
+  function removeBlock(id: number) {
+    setBlocks((b) => b.filter((x) => x.id !== id));
+  }
+  function moveBlock(i: number, dir: -1 | 1) {
+    setBlocks((prev) => {
+      const j = i + dir;
+      if (j < 0 || j >= prev.length) return prev;
+      const next = [...prev];
+      [next[i], next[j]] = [next[j], next[i]];
+      return next;
+    });
+  }
+
   const embedUrl =
     typeof window !== "undefined" && savedId
       ? `${window.location.origin}/w/${savedId}`
@@ -553,13 +627,6 @@ export function SetupForm() {
   // tabbed embed; otherwise a single chart (backward-compatible shape).
   const snapshotUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
-    const encode = (payload: unknown) => {
-      const json = JSON.stringify(payload);
-      const bytes = new TextEncoder().encode(json);
-      let bin = "";
-      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-      return `${window.location.origin}/s#${btoa(bin)}`;
-    };
     try {
       if (tabs.length > 0) {
         const built = tabs
@@ -574,14 +641,47 @@ export function SetupForm() {
           })
           .filter((tb) => tb.c.xKey && tb.d.length > 0);
         if (built.length === 0) return "";
-        return encode({ tabs: built });
+        return toSnapshotUrl({ tabs: built });
       }
       if (!xKey || series.length === 0 || previewData.length === 0) return "";
-      return encode({ t: chartType, d: previewData, c: config });
+      return toSnapshotUrl({ t: chartType, d: previewData, c: config });
     } catch {
       return "";
     }
   }, [tabs, processedRows, chartType, previewData, config, xKey, series.length]);
+
+  // ---- Dashboard mode: bake blocks + embed URL ----
+  const dashboard: DashboardSnapshot = useMemo(
+    () => ({
+      title: dashTitle || undefined,
+      blocks: blocks.map((b) => {
+        if (b.kind === "stat") {
+          const r = computeStat(processedRows, b.valueKey, b.agg, b.groupBy);
+          return { kind: "stat" as const, title: b.title, caption: b.caption, unit: b.unit, ...r };
+        }
+        if (b.kind === "table") {
+          return { kind: "table" as const, title: b.title, properties, rows: processedRows.slice(0, 200) };
+        }
+        let d: ChartDatum[] = [];
+        try {
+          d = buildChartData(processedRows, b.t, b.c);
+        } catch {
+          d = [];
+        }
+        return { kind: "chart" as const, title: b.title, t: b.t, d, c: b.c };
+      }),
+    }),
+    [blocks, dashTitle, processedRows, properties],
+  );
+
+  const dashboardUrl = useMemo(() => {
+    if (typeof window === "undefined" || blocks.length === 0) return "";
+    try {
+      return toSnapshotUrl({ dash: dashboard });
+    } catch {
+      return "";
+    }
+  }, [blocks.length, dashboard]);
 
   return (
     <>
@@ -742,11 +842,38 @@ export function SetupForm() {
               </svg>
               다른 DB 선택
             </button>
-            {workspace && (
-              <span className="rounded-full border border-[#1aae39]/30 bg-[#1aae39]/5 px-2.5 py-0.5 text-xs text-[#1aae39]">
-                ✓ {workspace}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {/* chart vs dashboard mode */}
+              <div className="flex rounded-lg border border-[rgba(0,0,0,0.1)] bg-[#f7f7f5] p-0.5 text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => setMode("chart")}
+                  className={
+                    mode === "chart"
+                      ? "rounded-md bg-white px-3 py-1 text-[#37352f] shadow-[rgba(15,15,15,0.08)_0px_1px_2px]"
+                      : "rounded-md px-3 py-1 text-[#9b9a97] hover:text-[#37352f]"
+                  }
+                >
+                  차트
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("dashboard")}
+                  className={
+                    mode === "dashboard"
+                      ? "rounded-md bg-white px-3 py-1 text-[#37352f] shadow-[rgba(15,15,15,0.08)_0px_1px_2px]"
+                      : "rounded-md px-3 py-1 text-[#9b9a97] hover:text-[#37352f]"
+                  }
+                >
+                  대시보드{blocks.length > 0 ? ` ${blocks.length}` : ""}
+                </button>
+              </div>
+              {workspace && (
+                <span className="rounded-full border border-[#1aae39]/30 bg-[#1aae39]/5 px-2.5 py-0.5 text-xs text-[#1aae39]">
+                  ✓ {workspace}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* hero chart card */}
@@ -777,6 +904,7 @@ export function SetupForm() {
             </div>
 
             {/* chart tab strip — build several charts into one embed */}
+            {mode === "chart" && (
             <div className="flex items-center gap-1 overflow-x-auto border-t border-[rgba(0,0,0,0.06)] px-2.5 py-1.5">
               {tabs.map((tb, i) => {
                 const activeTab = editingTab === i;
@@ -838,6 +966,19 @@ export function SetupForm() {
                 </span>
               )}
             </div>
+            )}
+            {mode === "dashboard" && (
+              <div className="flex items-center gap-2 border-t border-[rgba(0,0,0,0.06)] px-2.5 py-1.5">
+                <span className="text-xs text-[#9b9a97]">이 차트를 대시보드에 넣으려면 →</span>
+                <button
+                  type="button"
+                  onClick={addChartBlock}
+                  className="rounded-md bg-[#eaf4fd] px-2 py-1 text-xs font-medium text-[#2383e2] hover:bg-[#d8ecfb]"
+                >
+                  ＋ 차트 블록 추가
+                </button>
+              </div>
+            )}
 
             {/* chart */}
             <div
@@ -913,7 +1054,8 @@ export function SetupForm() {
             )}
           </div>
 
-          {/* embed bar */}
+          {/* embed bar (chart mode) */}
+          {mode === "chart" && (
           <div className="mt-4 space-y-3">
             <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-white p-3.5 shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
               <div className="flex items-center justify-between gap-2">
@@ -959,6 +1101,28 @@ export function SetupForm() {
               )}
             </div>
           </div>
+          )}
+
+          {/* dashboard composer (dashboard mode) */}
+          {mode === "dashboard" && (
+            <DashboardComposer
+              dashTitle={dashTitle}
+              setDashTitle={setDashTitle}
+              blocks={blocks}
+              numericProps={numericProps}
+              properties={properties}
+              dashboard={dashboard}
+              dashboardUrl={dashboardUrl}
+              onAddStat={addStatBlock}
+              onAddTable={addTableBlock}
+              onAddChart={addChartBlock}
+              onUpdate={updateBlock}
+              onRemove={removeBlock}
+              onMove={moveBlock}
+              copied={copied}
+              setCopied={setCopied}
+            />
+          )}
 
           {error && (
             <div className="mt-4 rounded-md border border-[#dd5b00]/30 bg-[#dd5b00]/5 px-4 py-3 text-sm text-[#dd5b00]">
@@ -1418,6 +1582,207 @@ export function SetupForm() {
         </div>
       )}
     </>
+  );
+}
+
+/* ---------- Dashboard composer ---------- */
+
+function DashboardComposer({
+  dashTitle,
+  setDashTitle,
+  blocks,
+  numericProps,
+  properties,
+  dashboard,
+  dashboardUrl,
+  onAddStat,
+  onAddTable,
+  onAddChart,
+  onUpdate,
+  onRemove,
+  onMove,
+  copied,
+  setCopied,
+}: {
+  dashTitle: string;
+  setDashTitle: (v: string) => void;
+  blocks: DashBlockEdit[];
+  numericProps: NotionPropertyMeta[];
+  properties: NotionPropertyMeta[];
+  dashboard: DashboardSnapshot;
+  dashboardUrl: string;
+  onAddStat: () => void;
+  onAddTable: () => void;
+  onAddChart: () => void;
+  onUpdate: (id: number, patch: Partial<DashBlockEdit>) => void;
+  onRemove: (id: number) => void;
+  onMove: (i: number, dir: -1 | 1) => void;
+  copied: boolean;
+  setCopied: (v: boolean) => void;
+}) {
+  const kindLabel = (k: DashBlockEdit["kind"]) =>
+    k === "stat" ? "숫자 카드" : k === "table" ? "표" : "차트";
+  const addBtn =
+    "inline-flex items-center gap-1 rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-2.5 py-1.5 text-xs font-medium text-[#37352f] hover:border-[rgba(0,0,0,0.3)]";
+
+  return (
+    <div className="mt-4 space-y-4">
+      {/* composer header */}
+      <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-white p-3.5 shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[#9b9a97]">
+              <Ic.layout />
+            </span>
+            <span className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">대시보드 구성</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            <button type="button" onClick={onAddStat} className={addBtn}>＋ 숫자 카드</button>
+            <button type="button" onClick={onAddTable} className={addBtn}>＋ 표</button>
+            <button type="button" onClick={onAddChart} className={addBtn}>＋ 현재 차트</button>
+          </div>
+        </div>
+        <input
+          value={dashTitle}
+          onChange={(e) => setDashTitle(e.target.value)}
+          className={`${inputClass} mt-3`}
+          placeholder="대시보드 제목 (선택)"
+        />
+      </div>
+
+      {/* block editors */}
+      {blocks.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-[rgba(0,0,0,0.18)] py-8 text-center text-sm text-[#a39e98]">
+          블록을 추가하세요. 숫자 카드(평균·합계 등) · 표 · 차트를 한 임베드에 쌓을 수 있습니다.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {blocks.map((b, i) => (
+            <div key={b.id} className="rounded-lg border border-[rgba(0,0,0,0.1)] bg-[#fbfbfa] p-3">
+              <div className="flex items-center gap-2">
+                <span className="rounded bg-[rgba(55,53,47,0.06)] px-1.5 py-0.5 text-[11px] font-medium text-[#787774]">
+                  {kindLabel(b.kind)}
+                </span>
+                <input
+                  value={b.title ?? ""}
+                  onChange={(e) => onUpdate(b.id, { title: e.target.value || undefined })}
+                  className={`${inputClass} flex-1`}
+                  placeholder="블록 제목"
+                />
+                <button type="button" onClick={() => onMove(i, -1)} disabled={i === 0} className="rounded px-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)] disabled:opacity-30" aria-label="위로">↑</button>
+                <button type="button" onClick={() => onMove(i, 1)} disabled={i === blocks.length - 1} className="rounded px-1 text-[#9b9a97] hover:bg-[rgba(55,53,47,0.08)] disabled:opacity-30" aria-label="아래로">↓</button>
+                <button type="button" onClick={() => onRemove(b.id)} className="rounded px-1 text-[#dd5b00] hover:bg-[#dd5b00]/10" aria-label="삭제">✕</button>
+              </div>
+
+              {b.kind === "stat" && (
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <select
+                    value={b.valueKey}
+                    onChange={(e) => onUpdate(b.id, { valueKey: e.target.value })}
+                    className={inputClass}
+                    title="값 속성"
+                  >
+                    <option value={COUNT_KEY}>개수 (count)</option>
+                    {numericProps.map((p) => (
+                      <option key={p.name} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={b.agg}
+                    onChange={(e) => onUpdate(b.id, { agg: e.target.value as Aggregation })}
+                    className={inputClass}
+                    title="집계"
+                  >
+                    <option value="avg">평균</option>
+                    <option value="sum">합계</option>
+                    <option value="count">개수</option>
+                    <option value="min">최소</option>
+                    <option value="max">최대</option>
+                    <option value="median">중앙값</option>
+                  </select>
+                  <select
+                    value={b.groupBy ?? ""}
+                    onChange={(e) => onUpdate(b.id, { groupBy: e.target.value || undefined })}
+                    className={inputClass}
+                    title="그룹 기준"
+                  >
+                    <option value="">그룹 없음</option>
+                    {properties.map((p) => (
+                      <option key={p.name} value={p.name}>그룹: {p.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    value={b.caption ?? ""}
+                    onChange={(e) => onUpdate(b.id, { caption: e.target.value || undefined })}
+                    className={inputClass}
+                    placeholder="카드 안 설명 (예: 평균 석차등급)"
+                  />
+                  <input
+                    value={b.unit ?? ""}
+                    onChange={(e) => onUpdate(b.id, { unit: e.target.value || undefined })}
+                    className={inputClass}
+                    placeholder="단위 (예: 점, %)"
+                  />
+                </div>
+              )}
+              {b.kind === "chart" && (
+                <p className="mt-2 text-xs text-[#9b9a97]">
+                  추가 시점의 차트가 저장됩니다. 수정하려면 위에서 차트를 바꾼 뒤 새로 추가하세요.
+                </p>
+              )}
+              {b.kind === "table" && (
+                <p className="mt-2 text-xs text-[#9b9a97]">
+                  현재 데이터표(필터·정렬 반영, 최대 200행)가 들어갑니다.
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* live preview */}
+      {blocks.length > 0 && (
+        <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-[#fafafa] p-4">
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">미리보기</p>
+          <DashboardView dash={dashboard} />
+        </div>
+      )}
+
+      {/* embed url */}
+      <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-white p-3.5 shadow-[rgba(15,15,15,0.04)_0px_2px_8px]">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-[rgba(0,0,0,0.85)]">대시보드 임베드 URL</p>
+            <p className="mt-0.5 text-xs text-[#9b9a97]">
+              노션 <code className="rounded bg-[#f1f1ef] px-1">/embed</code> 블록에 붙여넣으세요. 저장 시점 데이터로 고정됩니다.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              if (!dashboardUrl) return;
+              navigator.clipboard.writeText(dashboardUrl);
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            }}
+            disabled={!dashboardUrl}
+            className={`${primaryBtn} shrink-0`}
+          >
+            {copied ? "복사됨 ✓" : "복사"}
+          </button>
+        </div>
+        {dashboardUrl ? (
+          <input
+            readOnly
+            value={dashboardUrl}
+            onFocus={(e) => e.currentTarget.select()}
+            className={`${inputClass} mt-2 font-mono text-xs`}
+          />
+        ) : (
+          <p className="mt-2 text-xs text-[#a39e98]">블록을 한 개 이상 추가하세요.</p>
+        )}
+      </div>
+    </div>
   );
 }
 
