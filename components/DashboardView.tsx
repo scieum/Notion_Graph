@@ -1,5 +1,6 @@
 "use client";
 
+import { Fragment, useState } from "react";
 import { ChartView } from "@/components/charts/ChartView";
 import { extractValue } from "@/lib/notion-values";
 import type {
@@ -31,30 +32,98 @@ function statGridClass(setting: number | undefined, count: number): string {
   return STAT_COLS[cols] ?? STAT_COLS[3];
 }
 
-/** Render a baked dashboard. Shared by the builder preview and the /s embed. */
+/**
+ * Render a baked dashboard. Shared by the builder preview and the /s embed.
+ * When `editable`, each block gets a drag handle + remove button so the user can
+ * rearrange the layout directly in the preview.
+ */
 export function DashboardView({
   dash,
   dark = false,
+  editable = false,
+  onReorder,
+  onRemove,
 }: {
   dash: DashboardSnapshot;
   dark?: boolean;
+  editable?: boolean;
+  onReorder?: (from: number, to: number) => void;
+  onRemove?: (index: number) => void;
 }) {
   const fg = dark ? "#f9fafb" : "rgba(0,0,0,0.92)";
   const sub = dark ? "rgba(255,255,255,0.55)" : "#787774";
   const cardBg = dark ? "rgba(255,255,255,0.04)" : "#ffffff";
   const cardBorder = dark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.09)";
 
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [overIdx, setOverIdx] = useState<number | null>(null);
+
   // Group consecutive stat blocks so they flow in one responsive row.
-  const rows: ({ kind: "stats"; items: DashStatBlock[] } | { kind: "block"; block: DashBlock })[] = [];
-  for (const b of dash.blocks) {
+  // Each entry carries the block's original index for drag-reordering.
+  type StatItem = { block: DashStatBlock; index: number };
+  const rows: ({ kind: "stats"; items: StatItem[] } | { kind: "block"; block: DashBlock; index: number })[] = [];
+  dash.blocks.forEach((b, index) => {
     if (b.kind === "stat") {
       const last = rows[rows.length - 1];
-      if (last && last.kind === "stats") last.items.push(b);
-      else rows.push({ kind: "stats", items: [b] });
+      if (last && last.kind === "stats") last.items.push({ block: b, index });
+      else rows.push({ kind: "stats", items: [{ block: b, index }] });
     } else {
-      rows.push({ kind: "block", block: b });
+      rows.push({ kind: "block", block: b, index });
     }
-  }
+  });
+
+  // Wrap a rendered block with drag handle + remove controls (editable mode only).
+  const frame = (node: React.ReactNode, index: number) => {
+    if (!editable) return node;
+    const dragging = dragIdx === index;
+    const over = overIdx === index && dragIdx !== null && dragIdx !== index;
+    return (
+      <div
+        onDragOver={(e) => {
+          if (dragIdx !== null && dragIdx !== index) {
+            e.preventDefault();
+            setOverIdx(index);
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          if (dragIdx !== null) onReorder?.(dragIdx, index);
+          setDragIdx(null);
+          setOverIdx(null);
+        }}
+        className={`group relative rounded-xl transition ${over ? "ring-2 ring-[#2383e2]" : ""} ${dragging ? "opacity-40" : ""}`}
+      >
+        <span
+          draggable
+          onDragStart={(e) => {
+            setDragIdx(index);
+            e.dataTransfer.effectAllowed = "move";
+          }}
+          onDragEnd={() => {
+            setDragIdx(null);
+            setOverIdx(null);
+          }}
+          className="absolute left-1.5 top-1.5 z-10 cursor-grab select-none rounded bg-white/85 px-1 text-sm text-[#9b9a97] opacity-0 shadow-sm transition group-hover:opacity-100 active:cursor-grabbing"
+          title="드래그하여 위치 이동"
+          aria-label="드래그 핸들"
+        >
+          ⠿
+        </span>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={() => onRemove(index)}
+            className="absolute right-1.5 top-1.5 z-10 rounded bg-white/85 px-1 text-sm text-[#dd5b00] opacity-0 shadow-sm transition group-hover:opacity-100"
+            title="삭제"
+            aria-label="블록 삭제"
+          >
+            ✕
+          </button>
+        )}
+        {node}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -71,14 +140,29 @@ export function DashboardView({
       {rows.map((row, ri) =>
         row.kind === "stats" ? (
           <div key={ri} className={`grid gap-4 ${statGridClass(dash.statColumns, row.items.length)}`}>
-            {row.items.map((s, i) => (
-              <StatCard key={i} block={s} fg={fg} sub={sub} cardBg={cardBg} cardBorder={cardBorder} />
+            {row.items.map((s) => (
+              <Fragment key={s.index}>
+                {frame(
+                  <StatCard block={s.block} fg={fg} sub={sub} cardBg={cardBg} cardBorder={cardBorder} />,
+                  s.index,
+                )}
+              </Fragment>
             ))}
           </div>
         ) : row.block.kind === "table" ? (
-          <TableCard key={ri} block={row.block} fg={fg} sub={sub} cardBg={cardBg} cardBorder={cardBorder} dark={dark} />
+          <div key={ri}>
+            {frame(
+              <TableCard block={row.block} fg={fg} sub={sub} cardBg={cardBg} cardBorder={cardBorder} dark={dark} />,
+              row.index,
+            )}
+          </div>
         ) : (
-          <ChartCard key={ri} block={row.block as DashChartBlock} fg={fg} sub={sub} cardBg={cardBg} cardBorder={cardBorder} />
+          <div key={ri}>
+            {frame(
+              <ChartCard block={row.block as DashChartBlock} fg={fg} sub={sub} cardBg={cardBg} cardBorder={cardBorder} />,
+              row.index,
+            )}
+          </div>
         ),
       )}
     </div>

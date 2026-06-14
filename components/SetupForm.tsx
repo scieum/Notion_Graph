@@ -581,10 +581,11 @@ export function SetupForm() {
   }, [editingTab, chartType, config]);
 
   // ---- dashboard block helpers ----
-  // New blocks land at the TOP so the user immediately sees what they added.
+  // New blocks append to the bottom (natural order); reorder by dragging.
   function addStatBlock() {
     const num = numericProps[0]?.name;
     setBlocks((b) => [
+      ...b,
       {
         id: blockId.current++,
         kind: "stat",
@@ -593,16 +594,15 @@ export function SetupForm() {
         valueKey: num ?? COUNT_KEY,
         agg: num ? "avg" : "count",
       },
-      ...b,
     ]);
   }
   function addTableBlock() {
-    setBlocks((b) => [{ id: blockId.current++, kind: "table", title: inspect?.title ?? "표" }, ...b]);
+    setBlocks((b) => [...b, { id: blockId.current++, kind: "table", title: inspect?.title ?? "표" }]);
   }
   function addChartBlock() {
     setBlocks((b) => [
-      { id: blockId.current++, kind: "chart", title: title || undefined, t: chartType, c: config },
       ...b,
+      { id: blockId.current++, kind: "chart", title: title || undefined, t: chartType, c: config },
     ]);
   }
   function updateBlock(id: number, patch: Partial<DashBlockEdit>) {
@@ -980,18 +980,6 @@ export function SetupForm() {
                 </span>
               )}
             </div>
-            )}
-            {mode === "dashboard" && (
-              <div className="flex items-center gap-2 border-t border-[rgba(0,0,0,0.06)] px-2.5 py-1.5">
-                <span className="text-xs text-[#9b9a97]">이 차트를 대시보드에 넣으려면 →</span>
-                <button
-                  type="button"
-                  onClick={addChartBlock}
-                  className="rounded-md bg-[#eaf4fd] px-2 py-1 text-xs font-medium text-[#2383e2] hover:bg-[#d8ecfb]"
-                >
-                  ＋ 차트 블록 추가
-                </button>
-              </div>
             )}
 
             {/* chart */}
@@ -1692,11 +1680,18 @@ function DashboardComposer({
         </div>
       </div>
 
-      {/* live preview — kept at the top so newly added blocks show immediately */}
+      {/* live preview — drag blocks here to rearrange the layout */}
       {blocks.length > 0 && (
         <div className="rounded-xl border border-[rgba(0,0,0,0.09)] bg-[#fafafa] p-4">
-          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">미리보기</p>
-          <DashboardView dash={dashboard} />
+          <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-[#9b9a97]">
+            미리보기 · 블록을 드래그해 위치를 바꿀 수 있어요
+          </p>
+          <DashboardView
+            dash={dashboard}
+            editable
+            onReorder={onReorder}
+            onRemove={(i) => onRemove(blocks[i].id)}
+          />
         </div>
       )}
 
