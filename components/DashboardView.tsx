@@ -207,40 +207,21 @@ function StatCard({
   cardBg: string;
   cardBorder: string;
 }) {
+  // Number card: a single aggregate value (numbers only).
+  const value = block.value ?? block.groups?.[0]?.value;
   return (
     <CardShell title={block.title} cardBg={cardBg} cardBorder={cardBorder} sub={sub}>
-      {block.groups ? (
-        <div className="flex flex-col gap-1.5 pt-1">
-          {block.caption && (
-            <p className="text-center text-sm" style={{ color: sub }}>
-              {block.caption}
-            </p>
-          )}
-          {block.groups.map((g, i) => (
-            <div key={i} className="flex items-baseline justify-between gap-3 border-b border-[rgba(0,0,0,0.05)] pb-1 last:border-0">
-              <span className="truncate text-sm" style={{ color: sub }}>
-                {g.label}
-              </span>
-              <span className="text-base font-semibold tabular-nums" style={{ color: fg }}>
-                {fmtNum(g.value)}
-                {block.unit ? <span className="ml-0.5 text-xs font-normal" style={{ color: sub }}>{block.unit}</span> : null}
-              </span>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="flex min-h-[96px] flex-col items-center justify-center gap-1 py-3">
-          {block.caption && (
-            <p className="text-sm" style={{ color: sub }}>
-              {block.caption}
-            </p>
-          )}
-          <p className="text-4xl font-bold tabular-nums" style={{ color: fg }}>
-            {fmtNum(block.value)}
-            {block.unit ? <span className="ml-1 text-lg font-medium" style={{ color: sub }}>{block.unit}</span> : null}
+      <div className="flex min-h-[96px] flex-col items-center justify-center gap-1 py-3">
+        {block.caption && (
+          <p className="text-sm" style={{ color: sub }}>
+            {block.caption}
           </p>
-        </div>
-      )}
+        )}
+        <p className="text-4xl font-bold tabular-nums" style={{ color: fg }}>
+          {fmtNum(value)}
+          {block.unit ? <span className="ml-1 text-lg font-medium" style={{ color: sub }}>{block.unit}</span> : null}
+        </p>
+      </div>
     </CardShell>
   );
 }

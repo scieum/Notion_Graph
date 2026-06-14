@@ -693,8 +693,9 @@ export function SetupForm() {
       statColumns: statColumns || undefined,
       blocks: blocks.map((b) => {
         if (b.kind === "stat") {
-          const r = computeStat(processedRows, b.valueKey, b.agg, b.groupBy);
-          return { kind: "stat" as const, title: b.title, caption: b.caption, unit: b.unit, ...r };
+          // Number cards show a single aggregate value (no grouped breakdown).
+          const r = computeStat(processedRows, b.valueKey, b.agg);
+          return { kind: "stat" as const, title: b.title, caption: b.caption, unit: b.unit, value: r.value };
         }
         if (b.kind === "table") {
           return { kind: "table" as const, title: b.title, properties, rows: processedRows.slice(0, 200) };
@@ -1056,6 +1057,10 @@ export function SetupForm() {
               statColumns={statColumns}
               setStatColumns={setStatColumns}
               editingId={editingBlock}
+              filters={tableFilters}
+              setFilters={setTableFilters}
+              filterJoin={filterJoin}
+              setFilterJoin={setFilterJoin}
               onAddStat={addStatBlock}
               onAddTable={addTableBlock}
               onAddChart={addChartBlock}
@@ -1632,6 +1637,87 @@ export function SetupForm() {
   );
 }
 
+/* ---------- Dashboard filter bar (shares the table's filter state) ---------- */
+
+function DashFilterBar({
+  properties,
+  filters,
+  setFilters,
+  join,
+  setJoin,
+}: {
+  properties: NotionPropertyMeta[];
+  filters: FilterRule[];
+  setFilters: React.Dispatch<React.SetStateAction<FilterRule[]>>;
+  join: "and" | "or";
+  setJoin: (j: "and" | "or") => void;
+}) {
+  const propType = (k: string) => properties.find((p) => p.name === k)?.type ?? "rich_text";
+  function addFilter() {
+    const p = properties[0];
+    if (!p) return;
+    setFilters((f) => [...f, { key: p.name, op: opsForType(p.type)[0][0], value: "" }]);
+  }
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span className="flex items-center gap-1 text-xs text-[#9b9a97]">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+          <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+        </svg>
+        필터
+      </span>
+      {filters.length > 1 && (
+        <div className="flex rounded-md border border-[rgba(0,0,0,0.12)] p-0.5">
+          <button type="button" onClick={() => setJoin("and")} className={join === "and" ? "rounded bg-[#2383e2] px-1.5 py-0.5 text-[10px] font-medium text-white" : "rounded px-1.5 py-0.5 text-[10px] font-medium text-[#787774]"}>AND</button>
+          <button type="button" onClick={() => setJoin("or")} className={join === "or" ? "rounded bg-[#2383e2] px-1.5 py-0.5 text-[10px] font-medium text-white" : "rounded px-1.5 py-0.5 text-[10px] font-medium text-[#787774]"}>OR</button>
+        </div>
+      )}
+      {filters.map((f, idx) => {
+        const ops = opsForType(propType(f.key));
+        const needsValue = f.op !== "empty" && f.op !== "nempty";
+        return (
+          <div key={idx} className="flex items-center gap-1 rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-1 py-0.5">
+            <select
+              value={f.key}
+              onChange={(e) => {
+                const nk = e.target.value;
+                const nop = opsForType(propType(nk))[0][0];
+                setFilters((p) => p.map((x, i) => (i === idx ? { ...x, key: nk, op: nop } : x)));
+              }}
+              className={tableSelect}
+            >
+              {properties.map((p) => (
+                <option key={p.name} value={p.name}>{p.name}</option>
+              ))}
+            </select>
+            <select
+              value={f.op}
+              onChange={(e) => setFilters((p) => p.map((x, i) => (i === idx ? { ...x, op: e.target.value } : x)))}
+              className={tableSelect}
+            >
+              {ops.map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
+            {needsValue && (
+              <input
+                value={f.value}
+                onChange={(e) => setFilters((p) => p.map((x, i) => (i === idx ? { ...x, value: e.target.value } : x)))}
+                className="w-16 rounded border border-[rgba(0,0,0,0.12)] bg-white px-1 py-0.5 text-xs focus:border-[#2383e2] focus:outline-none"
+                placeholder="값"
+              />
+            )}
+            <button type="button" onClick={() => setFilters((p) => p.filter((_, i) => i !== idx))} className="px-0.5 text-[#9b9a97] hover:text-[#dd5b00]" aria-label="필터 삭제">✕</button>
+          </div>
+        );
+      })}
+      <button type="button" onClick={addFilter} className="rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-2 py-1 text-xs font-medium text-[#2383e2] hover:border-[#2383e2]/50">
+        ＋ 필터
+      </button>
+    </div>
+  );
+}
+
 /* ---------- Dashboard composer ---------- */
 
 function DashboardComposer({
@@ -1645,6 +1731,10 @@ function DashboardComposer({
   statColumns,
   setStatColumns,
   editingId,
+  filters,
+  setFilters,
+  filterJoin,
+  setFilterJoin,
   onAddStat,
   onAddTable,
   onAddChart,
@@ -1666,6 +1756,10 @@ function DashboardComposer({
   statColumns: number;
   setStatColumns: (v: number) => void;
   editingId: number | null;
+  filters: FilterRule[];
+  setFilters: React.Dispatch<React.SetStateAction<FilterRule[]>>;
+  filterJoin: "and" | "or";
+  setFilterJoin: (j: "and" | "or") => void;
   onAddStat: () => void;
   onAddTable: () => void;
   onAddChart: () => void;
@@ -1723,6 +1817,16 @@ function DashboardComposer({
               <option value={4}>4단</option>
             </select>
           </label>
+        </div>
+        <div className="mt-3 border-t border-[rgba(0,0,0,0.06)] pt-2.5">
+          <DashFilterBar
+            properties={properties}
+            filters={filters}
+            setFilters={setFilters}
+            join={filterJoin}
+            setJoin={setFilterJoin}
+          />
+          <p className="mt-1.5 text-[11px] text-[#9b9a97]">필터는 모든 숫자 카드·표·차트에 함께 적용됩니다.</p>
         </div>
       </div>
 
@@ -1825,17 +1929,6 @@ function DashboardComposer({
                     <option value="min">최소</option>
                     <option value="max">최대</option>
                     <option value="median">중앙값</option>
-                  </select>
-                  <select
-                    value={b.groupBy ?? ""}
-                    onChange={(e) => onUpdate(b.id, { groupBy: e.target.value || undefined })}
-                    className={inputClass}
-                    title="그룹 기준"
-                  >
-                    <option value="">그룹 없음</option>
-                    {properties.map((p) => (
-                      <option key={p.name} value={p.name}>그룹: {p.name}</option>
-                    ))}
                   </select>
                   <input
                     value={b.caption ?? ""}
