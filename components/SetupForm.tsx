@@ -74,6 +74,63 @@ function toSnapshotUrl(payload: unknown): string {
   return `${window.location.origin}/s#${btoa(bin)}`;
 }
 
+/* ---------- Recent works (localStorage) — shown on the landing screen ---------- */
+
+type RecentWork = {
+  title: string;
+  kind: "chart" | "tabs" | "dashboard";
+  /** short descriptor, e.g. chart type label or block count */
+  meta?: string;
+  url: string;
+  savedAt: number;
+};
+
+const RECENT_KEY = "notion-charts:recent-works";
+const RECENT_MAX = 8;
+
+function loadRecentWorks(): RecentWork[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    const arr = raw ? (JSON.parse(raw) as unknown) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(
+      (w): w is RecentWork =>
+        !!w && typeof w.url === "string" && typeof w.savedAt === "number",
+    );
+  } catch {
+    return [];
+  }
+}
+
+function persistRecentWorks(list: RecentWork[]): RecentWork[] {
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
+  } catch {
+    // storage full / private mode — the list just won't persist
+  }
+  return list;
+}
+
+/** Prepend a work; same URL or same title+kind replaces the older entry. */
+function addRecentWork(work: Omit<RecentWork, "savedAt">): RecentWork[] {
+  const rest = loadRecentWorks().filter(
+    (w) => w.url !== work.url && !(w.title === work.title && w.kind === work.kind),
+  );
+  return persistRecentWorks([{ ...work, savedAt: Date.now() }, ...rest].slice(0, RECENT_MAX));
+}
+
+function timeAgo(ts: number): string {
+  const s = Math.floor((Date.now() - ts) / 1000);
+  if (s < 60) return "방금 전";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}분 전`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}시간 전`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}일 전`;
+  return new Date(ts).toLocaleDateString("ko-KR");
+}
+
 /** Shared wrapper for the Lucide-style chart icons (currentColor = inherits text color). */
 function ChartIcon({ children }: { children: React.ReactNode }) {
   return (
@@ -323,6 +380,11 @@ export function SetupForm() {
 
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
+
+  // Recent works — embed URLs the user copied, listed on the landing screen.
+  const [recentWorks, setRecentWorks] = useState<RecentWork[]>([]);
+  const [recentCopied, setRecentCopied] = useState<string | null>(null);
+  useEffect(() => setRecentWorks(loadRecentWorks()), []);
 
   const properties = inspect?.properties ?? [];
   const numericProps = useMemo(
@@ -888,6 +950,72 @@ export function SetupForm() {
         )}
           </Card>
 
+          {/* recent works — auto-listed from embed URLs copied in this browser */}
+          {recentWorks.length > 0 && (
+            <Card>
+              <div className="flex items-center justify-between">
+                <CardTitle>최근 작업</CardTitle>
+                <button
+                  type="button"
+                  onClick={() => setRecentWorks(persistRecentWorks([]))}
+                  className="text-xs text-[#9b9a97] underline hover:text-[#dd5b00]"
+                >
+                  모두 지우기
+                </button>
+              </div>
+              <ul className="mt-2 divide-y divide-[rgba(0,0,0,0.05)]">
+                {recentWorks.map((w) => (
+                  <li key={`${w.url}-${w.savedAt}`} className="flex items-center gap-2.5 py-2.5">
+                    <span className="shrink-0 text-[#9b9a97]">
+                      {w.kind === "dashboard" ? <Ic.layout /> : <Ic.bar />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <a
+                        href={w.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block truncate text-sm font-medium text-[rgba(0,0,0,0.85)] hover:text-[#2383e2]"
+                        title="새 탭에서 미리보기"
+                      >
+                        {w.title}
+                      </a>
+                      <p className="text-xs text-[#9b9a97]">
+                        {w.kind === "dashboard" ? "대시보드" : "차트"}
+                        {w.meta ? ` · ${w.meta}` : ""} · {timeAgo(w.savedAt)}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(w.url);
+                        setRecentCopied(w.url);
+                        window.setTimeout(() => setRecentCopied(null), 1500);
+                      }}
+                      className="shrink-0 rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-2 py-1 text-xs font-medium text-[#2383e2] hover:border-[#2383e2]/50"
+                    >
+                      {recentCopied === w.url ? "복사됨 ✓" : "복사"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRecentWorks(
+                          persistRecentWorks(recentWorks.filter((x) => x !== w)),
+                        )
+                      }
+                      className="shrink-0 rounded px-1 text-[#9b9a97] hover:text-[#dd5b00]"
+                      aria-label="목록에서 삭제"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-[#a39e98]">
+                임베드 URL을 복사하면 여기에 자동으로 저장됩니다. 이 브라우저에만 보관돼요.
+              </p>
+            </Card>
+          )}
+
           {error && (
             <div className="rounded-md border border-[#dd5b00]/30 bg-[#dd5b00]/5 px-4 py-3 text-sm text-[#dd5b00]">
               {error}
@@ -1121,6 +1249,16 @@ export function SetupForm() {
               onReorder={reorderBlock}
               copied={copied}
               setCopied={setCopied}
+              onCopy={(url) =>
+                setRecentWorks(
+                  addRecentWork({
+                    title: dashTitle || inspect?.title || "대시보드",
+                    kind: "dashboard",
+                    meta: `${blocks.length}개 블록`,
+                    url,
+                  }),
+                )
+              }
             />
           )}
 
@@ -1203,6 +1341,23 @@ export function SetupForm() {
                     navigator.clipboard.writeText(snapshotUrl);
                     setCopied(true);
                     window.setTimeout(() => setCopied(false), 1500);
+                    setRecentWorks(
+                      addRecentWork(
+                        tabs.length > 0
+                          ? {
+                              title: title || inspect?.title || "제목 없음",
+                              kind: "tabs",
+                              meta: `${tabs.length}개 탭`,
+                              url: snapshotUrl,
+                            }
+                          : {
+                              title: title || inspect?.title || "제목 없음",
+                              kind: "chart",
+                              meta: CHART_TYPES.find((t) => t.value === chartType)?.label,
+                              url: snapshotUrl,
+                            },
+                      ),
+                    );
                   }}
                   disabled={!snapshotUrl}
                   className={`${primaryBtn} shrink-0`}
@@ -1811,6 +1966,7 @@ function DashboardComposer({
   onReorder,
   copied,
   setCopied,
+  onCopy,
 }: {
   dashTitle: string;
   setDashTitle: (v: string) => void;
@@ -1836,6 +1992,7 @@ function DashboardComposer({
   onReorder: (from: number, to: number) => void;
   copied: boolean;
   setCopied: (v: boolean) => void;
+  onCopy?: (url: string) => void;
 }) {
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [overIdx, setOverIdx] = useState<number | null>(null);
@@ -2054,6 +2211,7 @@ function DashboardComposer({
               navigator.clipboard.writeText(dashboardUrl);
               setCopied(true);
               window.setTimeout(() => setCopied(false), 1500);
+              onCopy?.(dashboardUrl);
             }}
             disabled={!dashboardUrl}
             className={`${primaryBtn} shrink-0`}
