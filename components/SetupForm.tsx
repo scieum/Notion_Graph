@@ -8,6 +8,8 @@ import type {
   ChartStyle,
   ChartType,
   DashboardSnapshot,
+  FilterJoin,
+  FilterRule,
   LegendPosition,
   NotionPropertyMeta,
   SeriesConfig,
@@ -15,6 +17,7 @@ import type {
   WidgetConfig,
 } from "@/lib/types";
 import { COUNT_KEY } from "@/lib/types";
+import { matchFilter, opsForType } from "@/lib/filters";
 import { buildChartData } from "@/lib/chart-data";
 import { computeStat } from "@/lib/stats";
 import { extractValue } from "@/lib/notion-values";
@@ -314,6 +317,9 @@ export function SetupForm() {
   const [xAxis, setXAxis] = useState<AxisConfig>({});
   const [leftAxis, setLeftAxis] = useState<AxisConfig>({});
   const [rightAxis, setRightAxis] = useState<AxisConfig>({});
+  // per-chart filters — narrow this chart's rows independently of the table filter
+  const [chartFilters, setChartFilters] = useState<FilterRule[]>([]);
+  const [chartFilterJoin, setChartFilterJoin] = useState<FilterJoin>("and");
 
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -340,12 +346,14 @@ export function SetupForm() {
       sortBy,
       sortDir,
       limit: limit > 0 ? limit : undefined,
+      filters: chartFilters.length > 0 ? chartFilters : undefined,
+      filterJoin: chartFilterJoin,
       style,
       xAxis,
       leftAxis,
       rightAxis,
     }),
-    [title, xKey, series, aggregation, sortBy, sortDir, limit, style, xAxis, leftAxis, rightAxis],
+    [title, xKey, series, aggregation, sortBy, sortDir, limit, chartFilters, chartFilterJoin, style, xAxis, leftAxis, rightAxis],
   );
 
   // Rows after the table's filters + sorts — drives both the table and the chart.
@@ -369,6 +377,8 @@ export function SetupForm() {
     setTableSorts([]);
     setTableFilters([]);
     setFilterJoin("and");
+    setChartFilters([]);
+    setChartFilterJoin("and");
     setTabs([]);
     setEditingTab(null);
     setBlocks([]);
@@ -532,6 +542,8 @@ export function SetupForm() {
     setSortBy(c.sortBy ?? "none");
     setSortDir(c.sortDir ?? "asc");
     setLimit(c.limit ?? 0);
+    setChartFilters(c.filters ?? []);
+    setChartFilterJoin(c.filterJoin ?? "and");
     setStyle(c.style ?? DEFAULT_STYLE);
     setXAxis(c.xAxis ?? {});
     setLeftAxis(c.leftAxis ?? {});
@@ -1044,6 +1056,22 @@ export function SetupForm() {
             </div>
             )}
 
+            {/* per-chart filter bar — always visible, like the dashboard composer's */}
+            <div className="border-t border-[rgba(0,0,0,0.06)] px-3 py-2">
+              <DashFilterBar
+                properties={properties}
+                filters={chartFilters}
+                setFilters={setChartFilters}
+                join={chartFilterJoin}
+                setJoin={setChartFilterJoin}
+              />
+              {chartFilters.length > 0 && (
+                <p className="mt-1.5 text-[11px] text-[#9b9a97]">
+                  필터는 이 차트에만 적용되어 임베드에 함께 저장됩니다.
+                </p>
+              )}
+            </div>
+
             {/* chart */}
             <div
               className="px-4 pb-5 pt-1"
@@ -1384,6 +1412,22 @@ export function SetupForm() {
                         <option value="y-desc">합계 높음 → 낮음</option>
                       </RowSelect>
                     )}
+
+                    <RowExpand
+                      icon={<Ic.filter />}
+                      label="필터"
+                      value={chartFilters.length > 0 ? `${chartFilters.length}개` : "없음"}
+                      open={openRow === "filter"}
+                      onToggle={() => toggleRow("filter")}
+                    >
+                      <DashFilterBar
+                        properties={properties}
+                        filters={chartFilters}
+                        setFilters={setChartFilters}
+                        join={chartFilterJoin}
+                        setJoin={setChartFilterJoin}
+                      />
+                    </RowExpand>
 
                     {!isScatter && (
                       <RowToggleRow
@@ -2234,71 +2278,6 @@ function SeriesCard({
 /* ---------- Source data table (Notion-style sort + filter) ---------- */
 
 type SortRule = { key: string; dir: "asc" | "desc" };
-type FilterRule = { key: string; op: string; value: string };
-
-const NUM_PROP_TYPES = new Set(["number", "formula", "rollup", "checkbox"]);
-const DATE_PROP_TYPES2 = new Set(["date", "created_time", "last_edited_time"]);
-
-function opsForType(type: string): [string, string][] {
-  if (NUM_PROP_TYPES.has(type))
-    return [
-      ["eq", "="],
-      ["neq", "≠"],
-      ["gt", ">"],
-      ["gte", "≥"],
-      ["lt", "<"],
-      ["lte", "≤"],
-      ["empty", "비어 있음"],
-      ["nempty", "값 있음"],
-    ];
-  if (DATE_PROP_TYPES2.has(type))
-    return [
-      ["eq", "같음"],
-      ["gte", "이후 ≥"],
-      ["lte", "이전 ≤"],
-      ["empty", "비어 있음"],
-      ["nempty", "값 있음"],
-    ];
-  return [
-    ["contains", "포함"],
-    ["ncontains", "미포함"],
-    ["eq", "같음"],
-    ["neq", "다름"],
-    ["empty", "비어 있음"],
-    ["nempty", "값 있음"],
-  ];
-}
-
-function matchFilter(v: string | number | null, op: string, value: string): boolean {
-  const empty = v === null || v === "";
-  if (op === "empty") return empty;
-  if (op === "nempty") return !empty;
-  if (value.trim() === "") return true;
-  const sv = String(v ?? "");
-  const nv = Number(v);
-  const nq = Number(value);
-  const bothNum = Number.isFinite(nv) && Number.isFinite(nq);
-  switch (op) {
-    case "contains":
-      return sv.toLowerCase().includes(value.toLowerCase());
-    case "ncontains":
-      return !sv.toLowerCase().includes(value.toLowerCase());
-    case "eq":
-      return bothNum ? nv === nq : sv === value;
-    case "neq":
-      return bothNum ? nv !== nq : sv !== value;
-    case "gt":
-      return bothNum ? nv > nq : sv > value;
-    case "gte":
-      return bothNum ? nv >= nq : sv >= value;
-    case "lt":
-      return bothNum ? nv < nq : sv < value;
-    case "lte":
-      return bothNum ? nv <= nq : sv <= value;
-    default:
-      return true;
-  }
-}
 
 function cmpVal(a: string | number | null, b: string | number | null): number {
   const ae = a === null || a === "";
@@ -3127,6 +3106,11 @@ const Ic = {
       <path d="M7 4v16" />
       <path d="m21 16-4 4-4-4" />
       <path d="M17 20V4" />
+    </SIcon>
+  ),
+  filter: () => (
+    <SIcon>
+      <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
     </SIcon>
   ),
   eyeOff: () => (

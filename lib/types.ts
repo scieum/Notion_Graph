@@ -69,6 +69,12 @@ export type AxisConfig = {
 
 export type LegendPosition = "top" | "bottom" | "left" | "right" | "none";
 
+/** How multiple filter rules combine. */
+export type FilterJoin = "and" | "or";
+
+/** A single filter rule: a Notion property, an operator, and a comparison value. */
+export type FilterRule = { key: string; op: string; value: string };
+
 export type ChartStyle = {
   palette?: string[];
   /** plot/background fill */
@@ -104,6 +110,11 @@ export type WidgetConfig = {
   sortBy?: "x" | "y" | "none";
   sortDir?: "asc" | "desc";
   limit?: number;
+
+  /** per-chart row filters applied before aggregation */
+  filters?: FilterRule[];
+  /** how this chart's filter rules combine (default "and") */
+  filterJoin?: FilterJoin;
 
   style?: ChartStyle;
   xAxis?: AxisConfig;

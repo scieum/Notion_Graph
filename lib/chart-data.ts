@@ -7,6 +7,7 @@ import type {
 } from "./types";
 import { COUNT_KEY, TREND_PREFIX } from "./types";
 import { extractValue } from "./notion-values";
+import { applyFilters } from "./filters";
 import { fitTrendline } from "./trendline";
 
 type RowProps = Record<string, unknown>;
@@ -26,12 +27,15 @@ export function buildChartData(
   const series = resolveSeries(config);
   const xKey = config.xKey;
 
+  // Per-chart filters run before aggregation so every chart can narrow its own rows.
+  const filteredRows = applyFilters(rows, config.filters, config.filterJoin);
+
   let data: ChartDatum[];
 
   if (chartType === "scatter" || chartType === "bubble") {
     // Each row is an (x, y[, size]) point; no aggregation.
     data = [];
-    for (const row of rows) {
+    for (const row of filteredRows) {
       const xn = toNumber(extractValue(row[xKey]));
       if (xn === null) continue;
       const datum: ChartDatum = { x: xn };
@@ -56,7 +60,7 @@ export function buildChartData(
     const groups = new Map<string, Map<string, number[]>>();
     const counts = new Map<string, number>();
     const order: string[] = [];
-    for (const row of rows) {
+    for (const row of filteredRows) {
       const xv = extractValue(row[xKey]);
       if (xv === null || xv === undefined) continue;
       const key = String(xv);
