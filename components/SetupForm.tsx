@@ -119,6 +119,49 @@ function addRecentWork(work: Omit<RecentWork, "savedAt">): RecentWork[] {
   return persistRecentWorks([{ ...work, savedAt: Date.now() }, ...rest].slice(0, RECENT_MAX));
 }
 
+/** First renderable chart baked inside a /s embed URL — used for thumbnails. */
+type SnapshotPreview = { t: ChartType; d: ChartDatum[]; c: WidgetConfig };
+
+function decodeSnapshotPreview(url: string): SnapshotPreview | null {
+  try {
+    const hash = url.split("#")[1] ?? "";
+    if (!hash) return null;
+    const bytes = Uint8Array.from(atob(hash), (ch) => ch.charCodeAt(0));
+    const obj = JSON.parse(new TextDecoder().decode(bytes)) as {
+      t?: ChartType;
+      d?: ChartDatum[];
+      c?: WidgetConfig;
+      tabs?: { t: ChartType; d: ChartDatum[]; c: WidgetConfig }[];
+      dash?: { blocks?: { kind?: string; t?: ChartType; d?: ChartDatum[]; c?: WidgetConfig }[] };
+    };
+    if (!obj || typeof obj !== "object") return null;
+    if (obj.dash && Array.isArray(obj.dash.blocks)) {
+      const b = obj.dash.blocks.find((x) => x?.kind === "chart" && Array.isArray(x.d));
+      return b && b.t && b.c ? { t: b.t, d: b.d!, c: b.c } : null;
+    }
+    if (Array.isArray(obj.tabs) && obj.tabs[0]?.t && Array.isArray(obj.tabs[0].d)) {
+      const tb = obj.tabs[0];
+      return { t: tb.t, d: tb.d, c: tb.c };
+    }
+    if (obj.t && Array.isArray(obj.d) && obj.c) return { t: obj.t, d: obj.d, c: obj.c };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Strip legend/labels/axes so the chart reads as a small visual thumbnail. */
+function thumbConfig(c: WidgetConfig): WidgetConfig {
+  return {
+    ...c,
+    title: undefined,
+    style: { ...c.style, legend: "none", showDataLabels: false, showGrid: false },
+    xAxis: { ...c.xAxis, title: undefined, hide: true },
+    leftAxis: { ...c.leftAxis, title: undefined, hide: true },
+    rightAxis: { ...c.rightAxis, title: undefined, hide: true },
+  };
+}
+
 function timeAgo(ts: number): string {
   const s = Math.floor((Date.now() - ts) / 1000);
   if (s < 60) return "방금 전";
@@ -799,7 +842,11 @@ export function SetupForm() {
     <>
       {/* ===================== LANDING — fills one screen ===================== */}
       {!inspect && (
-        <div className="mx-auto flex min-h-[80vh] max-w-xl flex-col justify-center gap-6 py-10">
+        <div
+          className={`mx-auto flex max-w-xl flex-col gap-6 py-10 ${
+            recentWorks.length > 0 ? "" : "min-h-[80vh] justify-center"
+          }`}
+        >
           <header className="text-center">
             <h1 className="text-4xl font-bold tracking-[-0.0625em] text-[rgba(0,0,0,0.95)]">
               Notion Charts
@@ -950,77 +997,49 @@ export function SetupForm() {
         )}
           </Card>
 
-          {/* recent works — auto-listed from embed URLs copied in this browser */}
-          {recentWorks.length > 0 && (
-            <Card>
-              <div className="flex items-center justify-between">
-                <CardTitle>최근 작업</CardTitle>
-                <button
-                  type="button"
-                  onClick={() => setRecentWorks(persistRecentWorks([]))}
-                  className="text-xs text-[#9b9a97] underline hover:text-[#dd5b00]"
-                >
-                  모두 지우기
-                </button>
-              </div>
-              <ul className="mt-2 divide-y divide-[rgba(0,0,0,0.05)]">
-                {recentWorks.map((w) => (
-                  <li key={`${w.url}-${w.savedAt}`} className="flex items-center gap-2.5 py-2.5">
-                    <span className="shrink-0 text-[#9b9a97]">
-                      {w.kind === "dashboard" ? <Ic.layout /> : <Ic.bar />}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <a
-                        href={w.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block truncate text-sm font-medium text-[rgba(0,0,0,0.85)] hover:text-[#2383e2]"
-                        title="새 탭에서 미리보기"
-                      >
-                        {w.title}
-                      </a>
-                      <p className="text-xs text-[#9b9a97]">
-                        {w.kind === "dashboard" ? "대시보드" : "차트"}
-                        {w.meta ? ` · ${w.meta}` : ""} · {timeAgo(w.savedAt)}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        navigator.clipboard.writeText(w.url);
-                        setRecentCopied(w.url);
-                        window.setTimeout(() => setRecentCopied(null), 1500);
-                      }}
-                      className="shrink-0 rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-2 py-1 text-xs font-medium text-[#2383e2] hover:border-[#2383e2]/50"
-                    >
-                      {recentCopied === w.url ? "복사됨 ✓" : "복사"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRecentWorks(
-                          persistRecentWorks(recentWorks.filter((x) => x !== w)),
-                        )
-                      }
-                      className="shrink-0 rounded px-1 text-[#9b9a97] hover:text-[#dd5b00]"
-                      aria-label="목록에서 삭제"
-                    >
-                      ✕
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-2 text-xs text-[#a39e98]">
-                임베드 URL을 복사하면 여기에 자동으로 저장됩니다. 이 브라우저에만 보관돼요.
-              </p>
-            </Card>
-          )}
-
           {error && (
             <div className="rounded-md border border-[#dd5b00]/30 bg-[#dd5b00]/5 px-4 py-3 text-sm text-[#dd5b00]">
               {error}
             </div>
           )}
+        </div>
+      )}
+
+      {/* recent works — Canva-style thumbnail grid of embeds copied in this browser */}
+      {!inspect && recentWorks.length > 0 && (
+        <div className="mx-auto w-full max-w-5xl px-2 pb-14">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold tracking-[-0.015625em] text-[rgba(0,0,0,0.95)]">
+              최근 작업
+            </h2>
+            <button
+              type="button"
+              onClick={() => setRecentWorks(persistRecentWorks([]))}
+              className="text-xs text-[#9b9a97] underline hover:text-[#dd5b00]"
+            >
+              모두 지우기
+            </button>
+          </div>
+          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
+            {recentWorks.map((w) => (
+              <RecentWorkCard
+                key={`${w.url}-${w.savedAt}`}
+                work={w}
+                copied={recentCopied === w.url}
+                onCopy={() => {
+                  navigator.clipboard.writeText(w.url);
+                  setRecentCopied(w.url);
+                  window.setTimeout(() => setRecentCopied(null), 1500);
+                }}
+                onRemove={() =>
+                  setRecentWorks(persistRecentWorks(recentWorks.filter((x) => x !== w)))
+                }
+              />
+            ))}
+          </div>
+          <p className="mt-3 text-xs text-[#a39e98]">
+            임베드 URL을 복사하면 여기에 자동으로 저장됩니다. 이 브라우저에만 보관돼요.
+          </p>
         </div>
       )}
 
@@ -3350,6 +3369,81 @@ const primaryBtn =
 
 const ghostBtn =
   "w-full rounded-md border border-dashed border-[rgba(0,0,0,0.2)] px-3 py-2 text-sm font-medium text-[#615d59] hover:border-[#213183] hover:text-[#213183]";
+
+/* ---------- Recent work thumbnail card (Canva-style) ---------- */
+
+function RecentWorkCard({
+  work,
+  copied,
+  onCopy,
+  onRemove,
+}: {
+  work: RecentWork;
+  copied: boolean;
+  onCopy: () => void;
+  onRemove: () => void;
+}) {
+  const preview = useMemo(() => decodeSnapshotPreview(work.url), [work.url]);
+  const bg = preview?.c.style?.background;
+  const kindLabel =
+    work.kind === "dashboard" ? "대시보드" : work.kind === "tabs" ? "탭 차트" : "차트";
+  return (
+    <div className="group overflow-hidden rounded-xl border border-[rgba(0,0,0,0.09)] bg-white shadow-[rgba(15,15,15,0.04)_0px_2px_8px] transition-shadow hover:shadow-[rgba(15,15,15,0.12)_0px_6px_20px]">
+      <a
+        href={work.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="새 탭에서 미리보기"
+        className="block"
+      >
+        <div
+          className="pointer-events-none h-32 w-full overflow-hidden px-2 pt-2"
+          style={{ background: bg && bg !== "transparent" ? bg : "#ffffff" }}
+        >
+          {preview ? (
+            <ChartView type={preview.t} data={preview.d} config={thumbConfig(preview.c)} />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-[#d3d1cb]">
+              {work.kind === "dashboard" ? <Ic.layout /> : <Ic.bar />}
+            </div>
+          )}
+        </div>
+      </a>
+      <div className="border-t border-[rgba(0,0,0,0.06)] px-3 py-2">
+        <div className="flex items-center gap-1">
+          <a
+            href={work.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="min-w-0 flex-1 truncate text-[13px] font-medium text-[rgba(0,0,0,0.85)] hover:text-[#2383e2]"
+            title={work.title}
+          >
+            {work.title}
+          </a>
+          <button
+            type="button"
+            onClick={onCopy}
+            className="shrink-0 rounded-md border border-[rgba(0,0,0,0.12)] bg-white px-1.5 py-0.5 text-[11px] font-medium text-[#2383e2] opacity-0 transition-opacity hover:border-[#2383e2]/50 focus:opacity-100 group-hover:opacity-100"
+          >
+            {copied ? "복사됨 ✓" : "복사"}
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            className="shrink-0 rounded px-0.5 text-[#9b9a97] opacity-0 transition-opacity hover:text-[#dd5b00] focus:opacity-100 group-hover:opacity-100"
+            aria-label="목록에서 삭제"
+          >
+            ✕
+          </button>
+        </div>
+        <p className="mt-0.5 text-[11px] text-[#9b9a97]">
+          {kindLabel}
+          {work.meta ? ` · ${work.meta}` : ""} · {timeAgo(work.savedAt)}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
