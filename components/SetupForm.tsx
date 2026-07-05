@@ -843,8 +843,8 @@ export function SetupForm() {
       {/* ===================== LANDING — fills one screen ===================== */}
       {!inspect && (
         <div
-          className={`mx-auto flex max-w-xl flex-col gap-6 py-10 ${
-            recentWorks.length > 0 ? "" : "min-h-[80vh] justify-center"
+          className={`mx-auto flex w-full flex-col gap-6 py-10 ${
+            recentWorks.length > 0 ? "max-w-5xl" : "min-h-[80vh] max-w-xl justify-center"
           }`}
         >
           <header className="text-center">
@@ -1007,7 +1007,7 @@ export function SetupForm() {
 
       {/* recent works — Canva-style thumbnail grid, same column width as the card above */}
       {!inspect && recentWorks.length > 0 && (
-        <div className="mx-auto w-full max-w-xl pb-14">
+        <div className="mx-auto w-full max-w-5xl pb-14">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-bold tracking-[-0.015625em] text-[rgba(0,0,0,0.95)]">
               최근 작업
@@ -1020,7 +1020,7 @@ export function SetupForm() {
               모두 지우기
             </button>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-4">
+          <div className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             {recentWorks.map((w) => (
               <RecentWorkCard
                 key={`${w.url}-${w.savedAt}`}
