@@ -76,6 +76,25 @@ function toSnapshotUrl(payload: unknown): string {
 
 /* ---------- Recent works (localStorage) — shown on the landing screen ---------- */
 
+/** Editor state saved alongside a recent work so it can be reopened for editing. */
+type RecentWorkEdit = {
+  /** dataSourceId to re-inspect (OAuth flow) */
+  src: string;
+  mode: "chart" | "dashboard";
+  /* chart mode — single chart or tab set */
+  t?: ChartType;
+  c?: WidgetConfig;
+  tabs?: ChartTab[];
+  /* dashboard mode */
+  dashTitle?: string;
+  statColumns?: number;
+  blocks?: DashBlockEdit[];
+  /* table-level filter/sort shared by the table and every chart */
+  tableFilters?: FilterRule[];
+  filterJoin?: FilterJoin;
+  tableSorts?: { key: string; dir: "asc" | "desc" }[];
+};
+
 type RecentWork = {
   title: string;
   kind: "chart" | "tabs" | "dashboard";
@@ -83,6 +102,7 @@ type RecentWork = {
   meta?: string;
   url: string;
   savedAt: number;
+  edit?: RecentWorkEdit;
 };
 
 const RECENT_KEY = "notion-charts:recent-works";
@@ -550,6 +570,47 @@ export function SetupForm() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "불러오기 실패");
       applyInspectResult(json);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "오류");
+    } finally {
+      setInspecting(false);
+    }
+  }
+
+  // Reopen a recent work: re-inspect its source DB, then restore the saved editor state.
+  async function editRecentWork(w: RecentWork) {
+    const e = w.edit;
+    if (!e) return;
+    setError(null);
+    setInspecting(true);
+    setInspect(null);
+    try {
+      const res = await fetch("/api/notion/inspect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataSourceId: e.src }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "불러오기 실패");
+      applyInspectResult(json);
+      setTableFilters(e.tableFilters ?? []);
+      setFilterJoin(e.filterJoin ?? "and");
+      setTableSorts(e.tableSorts ?? []);
+      if (e.mode === "dashboard") {
+        setMode("dashboard");
+        setDashTitle(e.dashTitle ?? "");
+        setStatColumns(e.statColumns ?? 0);
+        setBlocks((e.blocks ?? []).map((b) => ({ ...b, id: blockId.current++ })));
+      } else {
+        setMode("chart");
+        if (e.tabs && e.tabs.length > 0) {
+          setTabs(e.tabs);
+          loadIntoEditor(e.tabs[0]);
+          setEditingTab(0);
+        } else if (e.t && e.c) {
+          loadIntoEditor({ name: "", t: e.t, c: e.c });
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "오류");
     } finally {
@@ -1031,6 +1092,7 @@ export function SetupForm() {
                   setRecentCopied(w.url);
                   window.setTimeout(() => setRecentCopied(null), 1500);
                 }}
+                onEdit={w.edit ? () => editRecentWork(w) : undefined}
                 onRemove={() =>
                   setRecentWorks(persistRecentWorks(recentWorks.filter((x) => x !== w)))
                 }
@@ -1275,6 +1337,19 @@ export function SetupForm() {
                     kind: "dashboard",
                     meta: `${blocks.length}개 블록`,
                     url,
+                    edit:
+                      !manualMode && inspect
+                        ? {
+                            src: inspect.dataSourceId,
+                            mode: "dashboard",
+                            dashTitle,
+                            statColumns,
+                            blocks,
+                            tableFilters,
+                            filterJoin,
+                            tableSorts,
+                          }
+                        : undefined,
                   }),
                 )
               }
@@ -1360,6 +1435,17 @@ export function SetupForm() {
                     navigator.clipboard.writeText(snapshotUrl);
                     setCopied(true);
                     window.setTimeout(() => setCopied(false), 1500);
+                    const chartEdit: RecentWorkEdit | undefined =
+                      !manualMode && inspect
+                        ? {
+                            src: inspect.dataSourceId,
+                            mode: "chart",
+                            ...(tabs.length > 0 ? { tabs } : { t: chartType, c: config }),
+                            tableFilters,
+                            filterJoin,
+                            tableSorts,
+                          }
+                        : undefined;
                     setRecentWorks(
                       addRecentWork(
                         tabs.length > 0
@@ -1368,12 +1454,14 @@ export function SetupForm() {
                               kind: "tabs",
                               meta: `${tabs.length}개 탭`,
                               url: snapshotUrl,
+                              edit: chartEdit,
                             }
                           : {
                               title: title || inspect?.title || "제목 없음",
                               kind: "chart",
                               meta: CHART_TYPES.find((t) => t.value === chartType)?.label,
                               url: snapshotUrl,
+                              edit: chartEdit,
                             },
                       ),
                     );
@@ -3376,11 +3464,13 @@ function RecentWorkCard({
   work,
   copied,
   onCopy,
+  onEdit,
   onRemove,
 }: {
   work: RecentWork;
   copied: boolean;
   onCopy: () => void;
+  onEdit?: () => void;
   onRemove: () => void;
 }) {
   const preview = useMemo(() => decodeSnapshotPreview(work.url), [work.url]);
@@ -3420,6 +3510,15 @@ function RecentWorkCard({
           >
             {work.title}
           </a>
+          {onEdit && (
+            <button
+              type="button"
+              onClick={onEdit}
+              className="shrink-0 rounded-md bg-[#2383e2] px-1.5 py-0.5 text-[11px] font-medium text-white opacity-0 transition-opacity hover:bg-[#1b6fc4] focus:opacity-100 group-hover:opacity-100"
+            >
+              편집
+            </button>
+          )}
           <button
             type="button"
             onClick={onCopy}
